@@ -184,11 +184,11 @@ def test_callback_mock_exchange_encrypts_token_and_returns_no_secret(monkeypatch
     with TestClient(app) as client:
         login(client)
         state = "known-test-state"
-        response = client.get("/api/instagram/callback", params={"code": "mock-code", "state": state}, cookies={instagram.STATE_COOKIE: state})
-        assert response.status_code == 200
-        result = response.json()
-        assert result["status"] == "connected" and result["username"] == "creator_example"
-        assert "access_token" not in result and "short-test-token" not in response.text
+        response = client.get("/api/instagram/callback", params={"code": "mock-code", "state": state},
+                              cookies={instagram.STATE_COOKIE: state}, follow_redirects=False)
+        assert response.status_code == 303
+        assert response.headers["location"] == "http://localhost:3000/?instagram=connected#settings"
+        assert "short-test-token" not in response.text and "long-test-token" not in response.headers["location"]
         assert len(calls) == 3
         assert response.headers["cache-control"] == "no-store"
         assert "max-age=0" in response.headers["set-cookie"].lower()
@@ -284,3 +284,18 @@ def test_disconnect_removes_local_encrypted_token_only(monkeypatch, tmp_path):
         assert response.json()["connected"] is False
         assert "Revoke app access" in response.json()["notice"]
         assert client.get("/api/instagram/status").json()["connected"] is False
+
+
+def test_cors_allows_credentials_only_for_configured_web_origin(monkeypatch):
+    with TestClient(app) as client:
+        allowed = client.options("/api/auth/session", headers={
+            "Origin": "http://localhost:3000", "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "content-type",
+        })
+        assert allowed.status_code == 200
+        assert allowed.headers.get("access-control-allow-credentials") == "true"
+        assert allowed.headers.get("access-control-allow-origin") == "http://localhost:3000"
+        denied = client.options("/api/auth/session", headers={
+            "Origin": "https://evil.example", "Access-Control-Request-Method": "GET",
+        })
+        assert "access-control-allow-origin" not in denied.headers

@@ -33,6 +33,13 @@ MEDIA_FIELDS = "id,caption,media_type,media_product_type,media_url,permalink,tim
 REQUIRED_SCOPE = "instagram_business_basic"
 
 
+def _frontend_return_url(result: str) -> str:
+    """Return only to the configured web origin after the official OAuth callback."""
+    origins = [item.strip().rstrip("/") for item in os.getenv("WEB_ORIGIN", "http://localhost:3000").split(",") if item.strip()]
+    origin = origins[0] if origins else "http://localhost:3000"
+    return f"{origin}/?instagram={result}#settings"
+
+
 @dataclass(frozen=True)
 class Settings:
     app_id: str
@@ -203,8 +210,7 @@ def instagram_callback(request: Request, code: str = "", state: str = "", error:
                                 user_id=str(user_id), expires_at=expires_at)
         except (sqlite3.Error, OSError, ValueError, TypeError):
             raise HTTPException(status_code=503, detail="Instagram credentials could not be stored securely.") from None
-        result = JSONResponse({"status": "connected", "connected": True,
-                               "provider": "instagram", **connection})
+        result = RedirectResponse(_frontend_return_url("connected"), status_code=303)
     result.delete_cookie(STATE_COOKIE, path=CALLBACK_PATH)
     result.headers["Cache-Control"] = "no-store"
     result.headers["Pragma"] = "no-cache"

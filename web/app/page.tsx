@@ -11,6 +11,10 @@ type Copy = {
 type ContentMode = "ideas" | "caption" | "reel_script";
 type ContentPiece = { title: string; hook: string; body: string; cta: string; hashtags: string[]; scenes: string[] };
 type ContentResult = { mode: ContentMode; language: "ar" | "en"; generator: "free_template"; notice: string; pieces: ContentPiece[] };
+type OwnerSession = { configured: boolean; authenticated: boolean };
+type InstagramStatus = { status: "not_configured" | "not_connected" | "connected"; connected: boolean; username?: string };
+type InstagramAccount = { username: string; account_type?: string | null; media_count?: number | null };
+type InstagramMedia = { id: string; caption?: string; media_type?: string; media_product_type?: string; permalink?: string; timestamp?: string; media_url?: string; thumbnail_url?: string; like_count?: number; comments_count?: number };
 
 const words: Record<Lang, Copy> = {
   ar: {
@@ -93,6 +97,17 @@ export default function Home() {
   const [contentResult, setContentResult] = useState<ContentResult | null>(null);
   const [contentError, setContentError] = useState("");
   const [generating, setGenerating] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [ownerSession, setOwnerSession] = useState<OwnerSession>({ configured: false, authenticated: false });
+  const [ownerPassword, setOwnerPassword] = useState("");
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [instagramStatus, setInstagramStatus] = useState<InstagramStatus | null>(null);
+  const [instagramAccount, setInstagramAccount] = useState<InstagramAccount | null>(null);
+  const [instagramMedia, setInstagramMedia] = useState<InstagramMedia[]>([]);
+  const [instagramBusy, setInstagramBusy] = useState(false);
+  const [instagramError, setInstagramError] = useState("");
+  const [oauthNotice, setOauthNotice] = useState("");
   const t = words[lang];
   const rtl = lang === "ar";
 
@@ -100,6 +115,94 @@ export default function Home() {
     document.documentElement.lang = lang;
     document.documentElement.dir = rtl ? "rtl" : "ltr";
   }, [lang, rtl]);
+
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+
+  async function refreshInstagram() {
+    setInstagramBusy(true);
+    setInstagramError("");
+    try {
+      const statusResponse = await fetch(`${apiBase}/api/instagram/status`, { credentials: "include", cache: "no-store" });
+      if (statusResponse.status === 401) {
+        setOwnerSession((current) => ({ ...current, authenticated: false }));
+        throw new Error("not-authenticated");
+      }
+      if (!statusResponse.ok) throw new Error("status-failed");
+      const status = await statusResponse.json() as InstagramStatus;
+      setInstagramStatus(status);
+      if (!status.connected) {
+        setInstagramAccount(null);
+        setInstagramMedia([]);
+        return;
+      }
+      const [accountResponse, mediaResponse] = await Promise.all([
+        fetch(`${apiBase}/api/instagram/account`, { credentials: "include", cache: "no-store" }),
+        fetch(`${apiBase}/api/instagram/media?limit=12`, { credentials: "include", cache: "no-store" }),
+      ]);
+      if (!accountResponse.ok || !mediaResponse.ok) throw new Error("data-failed");
+      const account = await accountResponse.json() as InstagramAccount;
+      const media = await mediaResponse.json() as { data?: InstagramMedia[] };
+      setInstagramAccount(account);
+      setInstagramMedia(Array.isArray(media.data) ? media.data : []);
+    } catch (error) {
+      if (!(error instanceof Error && error.message === "not-authenticated")) setInstagramError(t.apiLoadError);
+    } finally {
+      setInstagramBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    let active = true;
+    const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("instagram")) {
+      setOauthNotice(t.oauthNotice);
+      window.history.replaceState({}, "", `${window.location.pathname}#settings`);
+    }
+    fetch(`${apiBaseUrl}/api/auth/session`, { credentials: "include", cache: "no-store" })
+      .then((response) => response.json() as Promise<OwnerSession>)
+      .then((session) => { if (active) { setOwnerSession(session); setAuthLoading(false); } })
+      .catch(() => { if (active) { setOwnerSession({ configured: false, authenticated: false }); setAuthLoading(false); } });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!authLoading && ownerSession.authenticated) void refreshInstagram();
+  }, [authLoading, ownerSession.authenticated]);
+
+  async function loginOwner(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoginBusy(true);
+    setAuthError("");
+    try {
+      const response = await fetch(`${apiBase}/api/auth/login`, {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: ownerPassword }),
+      });
+      if (!response.ok) throw new Error("login-failed");
+      setOwnerPassword("");
+      const sessionResponse = await fetch(`${apiBase}/api/auth/session`, { credentials: "include", cache: "no-store" });
+      const session = await sessionResponse.json() as OwnerSession;
+      setOwnerSession(session);
+    } catch {
+      setAuthError(t.loginError);
+    } finally {
+      setLoginBusy(false);
+    }
+  }
+
+  async function logoutOwner() {
+    try {
+      const response = await fetch(`${apiBase}/api/auth/logout`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: "{}" });
+      if (!response.ok) throw new Error("logout-failed");
+      setOwnerSession((current) => ({ ...current, authenticated: false }));
+      setInstagramAccount(null);
+      setInstagramMedia([]);
+      setInstagramStatus(null);
+    } catch {
+      setInstagramError(t.apiLoadError);
+    }
+  }
 
   async function generateContent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -127,6 +230,9 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  if (authLoading) return <main className="auth-gate" dir={rtl ? "rtl" : "ltr"}><div className="auth-panel panel">{t.loading}</div></main>;
+  if (ownerSession.configured && !ownerSession.authenticated) return <main className="auth-gate" dir={rtl ? "rtl" : "ltr"} lang={lang}><div className="auth-panel panel"><div className="brand-mark">A<span>.</span></div><p className="eyebrow">{t.brand}</p><h1>{t.authTitle}</h1><p>{t.authIntro}</p><form className="owner-login-form" onSubmit={loginOwner}><label htmlFor="owner-password-gate">{t.password}</label><input id="owner-password-gate" type="password" autoComplete="current-password" required minLength={14} value={ownerPassword} onChange={(event) => setOwnerPassword(event.target.value)} /><button className="primary-button" type="submit" disabled={loginBusy}>{loginBusy ? t.loading : t.login}</button>{authError && <p className="form-error" role="alert">{authError}</p>}</form><button className="language-button" onClick={() => setLang(rtl ? "en" : "ar")}>{rtl ? "EN" : "عربي"}</button></div></main>;
+
   return (
     <main className="app-shell" dir={rtl ? "rtl" : "ltr"} lang={lang}>
       <aside className="sidebar">
@@ -152,7 +258,7 @@ export default function Home() {
         <header className="topbar">
           <div className="breadcrumb"><span>{t.workspace}</span><span className="crumb-divider">/</span><strong>{t[view]}</strong></div>
           <div className="top-actions">
-            <span className="connection-pill"><i />{t.offline}</span>
+            <span className="connection-pill"><i />{instagramStatus?.connected ? t.connected : t.offline}</span>
             <button className="language-button" onClick={() => setLang(rtl ? "en" : "ar")} aria-label={rtl ? "Switch to English" : "التبديل إلى العربية"}>{rtl ? "EN" : "عربي"}</button>
             <span className="avatar top-avatar" aria-label="Amr">A</span>
           </div>
@@ -166,8 +272,8 @@ export default function Home() {
               <h1>{t.welcome}</h1>
               <p>{t.intro}</p>
               <div className="hero-actions">
-                <button className="primary-button" disabled title={t.next}><span>{t.connect}</span><Icon name="arrow" size={17}/></button>
-                <span className="button-note">{t.next}</span>
+                <button className="primary-button" onClick={() => { if (instagramStatus?.status === "not_configured") return; window.location.assign(`${apiBase}/api/instagram/connect`); }} disabled={!ownerSession.authenticated || instagramStatus?.status !== "not_connected"}><span>{instagramStatus?.status === "not_configured" ? t.notConfigured : t.connect}</span><Icon name="arrow" size={17}/></button>
+                <span className="button-note">{instagramStatus?.status === "not_configured" ? t.setupPending : t.privacy}</span>
               </div>
             </div>
             <div className="hero-side">
@@ -233,8 +339,24 @@ export default function Home() {
         </section>}
 
         {view === "settings" && <section className="page-content">
-          <div className="page-title-row"><div><p className="eyebrow">{t.stage}</p><h1>{t.settingsTitle}</h1><p>{t.settingsSub}</p></div><span className="status-tag">{t.offline}</span></div>
-          <div className="settings-card panel"><div className="settings-row"><span className="settings-icon"><Icon name="grid"/></span><span><strong>{t.connection}</strong><small>{t.onlyOfficial}</small></span><span className="setting-value">{t.notSet}</span></div><div className="settings-row"><span className="settings-icon"><Icon name="spark"/></span><span><strong>{t.accountType}</strong><small>{t.permissions}</small></span><span className="setting-value">{t.creator}</span></div><div className="settings-row"><span className="settings-icon"><Icon name="lock"/></span><span><strong>{t.automation}</strong><small>{t.stopNote}</small></span><span className="setting-value">{t.manual}</span></div></div>
+          <div className="page-title-row"><div><p className="eyebrow">{t.stage}</p><h1>{t.settingsTitle}</h1><p>{t.settingsSub}</p></div><span className="status-tag">{instagramStatus?.connected ? t.connected : t.offline}</span></div>
+          <div className="settings-card panel">
+            <div className="settings-row"><span className="settings-icon"><Icon name="lock"/></span><span><strong>{t.authTitle}</strong><small>{ownerSession.configured ? t.authIntro : t.authSetup}</small></span>
+              {ownerSession.authenticated ? <button className="secondary-button" onClick={logoutOwner}>{t.logout}</button> : null}</div>
+            {!ownerSession.authenticated && ownerSession.configured && <form className="owner-login-form" onSubmit={loginOwner}><label htmlFor="owner-password">{t.password}</label><div className="owner-login-controls"><input id="owner-password" type="password" autoComplete="current-password" required minLength={14} value={ownerPassword} onChange={(event) => setOwnerPassword(event.target.value)} /><button className="primary-button" type="submit" disabled={loginBusy}>{loginBusy ? t.loading : t.login}</button></div>{authError && <p className="form-error" role="alert">{authError}</p>}</form>}
+          </div>
+          {ownerSession.authenticated && <>
+            <div className="settings-card panel instagram-data-card">
+              <div className="panel-heading"><div><h3>{t.accountData}</h3><p>{t.permissionNote}</p></div><button className="secondary-button" onClick={() => void refreshInstagram()} disabled={instagramBusy}>{instagramBusy ? t.loading : t.refresh}</button></div>
+              {instagramStatus?.status === "not_configured" && <div className="empty-note">{t.setupPending}</div>}
+              {instagramStatus?.status === "not_connected" && <div className="instagram-connect-row"><span>{t.notSet}</span><button className="primary-button" onClick={() => window.location.assign(`${apiBase}/api/instagram/connect`)}>{t.connectOfficial}</button></div>}
+              {instagramStatus?.connected && instagramAccount && <div className="instagram-profile-grid"><div><small>{t.accountName}</small><strong>@{instagramAccount.username}</strong></div><div><small>{t.accountType}</small><strong>{instagramAccount.account_type || "—"}</strong></div><div><small>{t.mediaCount}</small><strong>{typeof instagramAccount.media_count === "number" ? instagramAccount.media_count : "—"}</strong></div></div>}
+              {oauthNotice && <p className="result-notice" role="status">{oauthNotice}</p>}
+              {instagramError && <p className="form-error" role="alert">{instagramError}</p>}
+              {instagramStatus?.connected && <div className="instagram-media-list"><h4>{t.recentMedia}</h4>{instagramMedia.length === 0 ? <p className="empty-note">{t.noMedia}</p> : instagramMedia.map((item) => <article className="instagram-media-item" key={item.id}><div><strong>{item.media_product_type || item.media_type || "Instagram"}</strong><small>{item.timestamp ? new Date(item.timestamp).toLocaleString(lang === "ar" ? "ar-EG" : "en-US") : ""}</small><p>{item.caption || ""}</p></div>{item.permalink && <a href={item.permalink} target="_blank" rel="noreferrer">{item.media_product_type === "REELS" ? "Reel" : "Instagram"} ↗</a>}</article>)}</div>}
+            </div>
+          </>}
+          <div className="settings-card panel"><div className="settings-row"><span className="settings-icon"><Icon name="spark"/></span><span><strong>{t.accountType}</strong><small>{t.permissions}</small></span><span className="setting-value">{t.creator}</span></div><div className="settings-row"><span className="settings-icon"><Icon name="lock"/></span><span><strong>{t.automation}</strong><small>{t.stopNote}</small></span><span className="setting-value">{t.manual}</span></div></div>
           <div className="info-strip"><strong>{t.security}</strong><span>{t.securityText}</span></div>
         </section>}
       </section>
