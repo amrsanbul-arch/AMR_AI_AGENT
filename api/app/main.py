@@ -4,11 +4,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.content import ContentRequest, ContentResponse, generate_content
+from app.instagram_oauth import router as instagram_router
 
 app = FastAPI(
     title="AMR AI – Personal Instagram Manager",
-    version="0.3.0",
-    description="Content assistant starter. Instagram is not connected.",
+    version="0.4.0",
+    description="Content assistant and optional official Instagram OAuth scaffold. No account is connected by default.",
 )
 
 web_origins = [
@@ -25,12 +26,13 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type"],
 )
+app.include_router(instagram_router)
 
 
 @app.get("/healthz", tags=["system"])
 def health_check() -> dict[str, str]:
-    """Report service process health; this does not test Instagram connectivity."""
-    return {"status": "ok", "stage": "content_assistant", "instagram": "not_connected"}
+    """Report process health; not a live Instagram check."""
+    return {"status": "ok", "stage": "instagram_oauth_scaffold", "instagram": "not_connected"}
 
 
 @app.post("/api/content/generate", response_model=ContentResponse, tags=["content"])
