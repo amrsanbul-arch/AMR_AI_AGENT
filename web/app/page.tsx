@@ -11,9 +11,10 @@ type Copy = {
 type ContentMode = "ideas" | "caption" | "reel_script";
 type ContentPiece = { title: string; hook: string; body: string; cta: string; hashtags: string[]; scenes: string[] };
 type ReelScene = { start_seconds: number; end_seconds: number; shot_ar: string; shot_en: string; screen_text_ar: string; screen_text_en: string; voiceover_ar: string; voiceover_en: string };
-type ReelBoard = { generator: "free_template"; title_ar: string; title_en: string; duration_seconds: number; concept_ar: string; concept_en: string; hook_ar: string; hook_en: string; voiceover_ar: string; voiceover_en: string; caption_ar: string; caption_en: string; cta_ar: string; cta_en: string; scenes: ReelScene[]; production_note_ar: string; production_note_en: string };
-type ContentResult = { mode: ContentMode; language: "ar" | "en"; generator: "free_template"; notice: string; pieces: ContentPiece[] };
+type ReelBoard = { generator: "free_template" | "ollama"; title_ar: string; title_en: string; duration_seconds: number; concept_ar: string; concept_en: string; hook_ar: string; hook_en: string; voiceover_ar: string; voiceover_en: string; caption_ar: string; caption_en: string; cta_ar: string; cta_en: string; scenes: ReelScene[]; production_note_ar: string; production_note_en: string };
+type ContentResult = { mode: ContentMode; language: "ar" | "en"; generator: "free_template" | "ollama"; notice: string; pieces: ContentPiece[] };
 type OwnerSession = { configured: boolean; authenticated: boolean };
+type GeneratorStatus = { generator: "free_template" | "ollama"; model: string | null; configured: boolean; fallback_available: boolean };
 type InstagramStatus = { status: "not_configured" | "not_connected" | "connected"; connected: boolean; username?: string };
 type InstagramAccount = { username: string; account_type?: string | null; media_count?: number | null };
 type InstagramMedia = { id: string; caption?: string; media_type?: string; media_product_type?: string; permalink?: string; timestamp?: string; media_url?: string; thumbnail_url?: string; like_count?: number; comments_count?: number };
@@ -41,7 +42,7 @@ const words: Record<Lang, Copy> = {
     studioTitle: "مساعد المحتوى المجاني", studioIntro: "اكتب موضوعك واختر نوع المسودة. النتائج محلية قابلة للتعديل، ولا تُنشر تلقائيًا.",
     topicLabel: "موضوع المحتوى", topicPlaceholder: "مثال: تصوير الطعام للمطاعم", audienceLabel: "الجمهور (اختياري)", audiencePlaceholder: "مثال: أصحاب المطاعم الصغيرة",
     modeLabel: "نوع المحتوى", ideasMode: "أفكار", captionMode: "كابشن", reelMode: "سكريبت Reel", toneLabel: "النبرة", friendlyTone: "ودودة", professionalTone: "احترافية", playfulTone: "مرحة", educationalTone: "تعليمية",
-    generate: "جهّز مسودة", generating: "بجهّز…", generated: "المسودات المقترحة", hookLabel: "الافتتاحية", bodyLabel: "النص", ctaLabel: "دعوة للتفاعل", hashtagsLabel: "هاشتاجات مقترحة", scenesLabel: "تقسيم المشاهد", generatorError: "تعذر الاتصال بخادم المساعد. شغّل API محليًا وحاول تاني.", generatorLocal: "محلي مجاني",
+    generate: "جهّز مسودة", generating: "بجهّز…", generated: "المسودات المقترحة", hookLabel: "الافتتاحية", bodyLabel: "النص", ctaLabel: "دعوة للتفاعل", hashtagsLabel: "هاشتاجات مقترحة", scenesLabel: "تقسيم المشاهد", generatorError: "تعذر الاتصال بخادم المساعد. شغّل API محليًا وحاول تاني.", generatorLocal: "قوالب مجانية", generatorOllama: "نموذج محلي · Ollama", generatorConfigured: "النموذج المحلي جاهز", generatorTemplate: "القوالب المجانية هي البديل",
     loading: "جارٍ التحميل…", authTitle: "دخول المالك", authIntro: "سجّل الدخول لإدارة لوحة حسابك فقط.", authSetup: "أضف كلمة مرور مالك آمنة في إعدادات الخادم.", password: "كلمة مرور المالك", login: "دخول", loginError: "تعذر تسجيل الدخول. تحقق من كلمة المرور وإعداد الخادم.", logout: "تسجيل الخروج",
     connected: "متصل رسميًا", notConfigured: "إعداد الربط غير مكتمل", setupPending: "أكمل إعداد تطبيق Meta ومفاتيح OAuth على الخادم أولًا.", connectOfficial: "ربط حساب Instagram رسميًا", oauthNotice: "عاد تسجيل الدخول من Instagram؛ حدّث الحالة لعرض الحساب.", apiLoadError: "تعذر تحميل بيانات Instagram. حدّث الصفحة وحاول مجددًا.", accountData: "بيانات الحساب", accountName: "اسم الحساب", mediaCount: "عدد المنشورات", recentMedia: "أحدث المنشورات", noMedia: "لم تُرجع Meta منشورات لهذا الحساب.", permissionNote: "نستخدم فقط الصلاحيات التي وافقت عليها عبر Meta.", refresh: "تحديث البيانات",
 
@@ -64,7 +65,7 @@ const words: Record<Lang, Copy> = {
     studioTitle: "Free content assistant", studioIntro: "Add a topic and choose a draft type. Results are local and editable; nothing is published.",
     topicLabel: "Content topic", topicPlaceholder: "e.g. food photography for restaurants", audienceLabel: "Audience (optional)", audiencePlaceholder: "e.g. small restaurant owners",
     modeLabel: "Content type", ideasMode: "Ideas", captionMode: "Caption", reelMode: "Reel script", toneLabel: "Tone", friendlyTone: "Friendly", professionalTone: "Professional", playfulTone: "Playful", educationalTone: "Educational",
-    generate: "Generate draft", generating: "Working…", generated: "Suggested drafts", hookLabel: "Hook", bodyLabel: "Copy", ctaLabel: "Call to action", hashtagsLabel: "Suggested hashtags", scenesLabel: "Scene outline", generatorError: "Could not reach the assistant API. Start it locally and try again.", generatorLocal: "FREE · LOCAL",
+    generate: "Generate draft", generating: "Working…", generated: "Suggested drafts", hookLabel: "Hook", bodyLabel: "Copy", ctaLabel: "Call to action", hashtagsLabel: "Suggested hashtags", scenesLabel: "Scene outline", generatorError: "Could not reach the assistant API. Start it locally and try again.", generatorLocal: "FREE TEMPLATES", generatorOllama: "LOCAL MODEL · OLLAMA", generatorConfigured: "LOCAL MODEL READY", generatorTemplate: "Free templates remain available",
     loading: "Loading…", authTitle: "Owner sign-in", authIntro: "Sign in to manage your account dashboard.", authSetup: "Set a secure owner password in the server configuration.", password: "Owner password", login: "Sign in", loginError: "Could not sign in. Check the password and server setup.", logout: "Sign out",
     connected: "Officially connected", notConfigured: "Connection setup incomplete", setupPending: "Finish Meta app and OAuth configuration on the server first.", connectOfficial: "Connect Instagram officially", oauthNotice: "Returned from Instagram sign-in; refresh to load the account.", apiLoadError: "Could not load Instagram data. Refresh and try again.", accountData: "Account data", accountName: "Account name", mediaCount: "Post count", recentMedia: "Recent posts", noMedia: "Meta returned no posts for this account.", permissionNote: "Only permissions approved through Meta are used.", refresh: "Refresh data",
 
@@ -106,6 +107,7 @@ export default function Home() {
   const [tone, setTone] = useState("friendly");
   const [contentResult, setContentResult] = useState<ContentResult | null>(null);
   const [contentError, setContentError] = useState("");
+  const [generatorStatus, setGeneratorStatus] = useState<GeneratorStatus | null>(null);
   const [studioTab, setStudioTab] = useState<"assistant" | "reels">("reels");
   const [reelDuration, setReelDuration] = useState<15 | 30 | 45>(30);
   const [reelBoard, setReelBoard] = useState<ReelBoard | null>(null);
@@ -149,6 +151,14 @@ export default function Home() {
       setReelSaved(true);
     } catch { setReelSaved(false); }
   }, [reelBoard]);
+
+  useEffect(() => {
+    const base = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+    fetch(`${base}/api/content/provider`, { cache: "no-store" })
+      .then((response) => response.ok ? response.json() as Promise<GeneratorStatus> : null)
+      .then((status) => { if (status) setGeneratorStatus(status); })
+      .catch(() => setGeneratorStatus(null));
+  }, []);
 
   useEffect(() => {
     document.documentElement.lang = lang;
@@ -479,14 +489,14 @@ VO AR: ${scene.voiceover_ar}`).join("\n\n");
         </>}
 
         {view === "studio" && <section className="page-content">
-          <div className="page-title-row"><div><p className="eyebrow">{t.stage}</p><h1>{t.contentTitle}</h1><p>{t.contentSub}</p></div><span className="status-tag">{t.studioTitle}</span></div>
+          <div className="page-title-row"><div><p className="eyebrow">{t.stage}</p><h1>{t.contentTitle}</h1><p>{t.contentSub}</p></div><span className="status-tag">{generatorStatus?.generator === "ollama" ? t.generatorOllama : t.generatorLocal}</span></div>
           <div className="studio-switch" role="tablist" aria-label={lang === "ar" ? "أدوات الاستوديو" : "Studio tools"}>
             <button role="tab" aria-selected={studioTab === "reels"} className={studioTab === "reels" ? "active" : ""} onClick={() => setStudioTab("reels")} type="button">{lang === "ar" ? "استوديو Reels" : "Reels studio"}</button>
             <button role="tab" aria-selected={studioTab === "assistant"} className={studioTab === "assistant" ? "active" : ""} onClick={() => setStudioTab("assistant")} type="button">{lang === "ar" ? "أفكار وكابشنات" : "Ideas & captions"}</button>
           </div>
           {studioTab === "reels" && <>
             <div className="studio-workspace panel reel-setup">
-              <div className="studio-intro"><span className="studio-art reel-art"><Icon name="spark" size={25}/></span><div><h2>{lang === "ar" ? "خطّط Reel لقطة بلقطة" : "Plan your Reel, shot by shot"}</h2><p>{lang === "ar" ? "اكتب الفكرة، واختر المدة؛ جهّزنا لك لوحة تصوير وسكريبتًا عربيًا وإنجليزيًا قابلين للتعديل." : "Set the idea and length to get an editable shot list and Arabic + English script."}</p></div><span className="reel-free-tag">{lang === "ar" ? "محلي · مجاني" : "LOCAL · FREE"}</span></div>
+              <div className="studio-intro"><span className="studio-art reel-art"><Icon name="spark" size={25}/></span><div><h2>{lang === "ar" ? "خطّط Reel لقطة بلقطة" : "Plan your Reel, shot by shot"}</h2><p>{lang === "ar" ? "اكتب الفكرة، واختر المدة؛ جهّزنا لك لوحة تصوير وسكريبتًا عربيًا وإنجليزيًا قابلين للتعديل." : "Set the idea and length to get an editable shot list and Arabic + English script."}</p></div><span className="reel-free-tag">{reelBoard?.generator === "ollama" ? t.generatorOllama : generatorStatus?.generator === "ollama" ? t.generatorConfigured : t.generatorLocal}</span></div>
               <form className="content-form reel-form" onSubmit={generateReelBoard}>
                 <div className="form-field"><label htmlFor="reel-topic">{lang === "ar" ? "فكرة الـReel" : "Reel idea"}</label><input id="reel-topic" required minLength={2} maxLength={180} value={topic} onChange={(event) => setTopic(event.target.value)} placeholder={t.topicPlaceholder}/></div>
                 <div className="reel-form-row">
@@ -495,6 +505,7 @@ VO AR: ${scene.voiceover_ar}`).join("\n\n");
                   <div className="form-field"><label>{lang === "ar" ? "مدة الفيديو" : "Reel length"}</label><div className="duration-picker" role="group" aria-label={lang === "ar" ? "مدة الفيديو" : "Reel length"}>{([15, 30, 45] as const).map((seconds) => <button key={seconds} type="button" aria-pressed={reelDuration === seconds} className={reelDuration === seconds ? "selected" : ""} onClick={() => setReelDuration(seconds)}>{seconds}s</button>)}</div></div>
                 </div>
                 <button className="primary-button studio-submit" type="submit" disabled={reelBusy || topic.trim().length < 2}><span>{reelBusy ? (lang === "ar" ? "جارٍ إعداد اللوحة…" : "Building your board…") : (lang === "ar" ? "جهّز لوحة التصوير" : "Build shot list")}</span><Icon name="spark" size={17}/></button>
+                {generatorStatus?.generator === "ollama" && <p className="result-notice">{t.generatorConfigured} · {generatorStatus.model}</p>}
                 {reelError && <p className="form-error" role="alert">{reelError}</p>}
               </form>
             </div>
@@ -526,10 +537,11 @@ VO AR: ${scene.voiceover_ar}`).join("\n\n");
                 <div className="form-field"><label htmlFor="tone">{t.toneLabel}</label><select id="tone" value={tone} onChange={(e) => setTone(e.target.value)}><option value="friendly">{t.friendlyTone}</option><option value="professional">{t.professionalTone}</option><option value="playful">{t.playfulTone}</option><option value="educational">{t.educationalTone}</option></select></div>
               </div>
               <button className="primary-button studio-submit" type="submit" disabled={generating}><span>{generating ? t.generating : t.generate}</span><Icon name="spark" size={17}/></button>
+              {generatorStatus?.generator === "ollama" && <p className="result-notice">{t.generatorConfigured} · {generatorStatus.model}</p>}
               {contentError && <p className="form-error" role="alert">{contentError}</p>}
             </form>
           </div>}
-          {studioTab === "assistant" && contentResult && <section className="generated-results" aria-live="polite"><div className="results-heading"><h2>{t.generated}</h2><span className="status-tag">{contentResult.generator === "free_template" ? t.generatorLocal : ""}</span></div><p className="result-notice">{contentResult.notice}</p><div className="result-grid">{contentResult.pieces.map((piece, index) => <article className="result-card panel" key={`${piece.title}-${index}`}><p className="eyebrow">{contentResult.mode === "ideas" ? `${t.ideasMode} ${index + 1}` : t.generated}</p><h3>{piece.title}</h3><div className="result-block"><strong>{t.hookLabel}</strong><p>{piece.hook}</p></div><div className="result-block"><strong>{t.bodyLabel}</strong><p className="result-body">{piece.body}</p></div>{piece.scenes.length > 0 && <div className="result-block"><strong>{t.scenesLabel}</strong><ol>{piece.scenes.map((scene) => <li key={scene}>{scene}</li>)}</ol></div>}<div className="result-block"><strong>{t.ctaLabel}</strong><p>{piece.cta}</p></div><div className="result-block"><strong>{t.hashtagsLabel}</strong><p className="hashtags">{piece.hashtags.join(" ")}</p></div></article>)}</div></section>}
+          {studioTab === "assistant" && contentResult && <section className="generated-results" aria-live="polite"><div className="results-heading"><h2>{t.generated}</h2><span className="status-tag">{contentResult.generator === "ollama" ? t.generatorOllama : t.generatorLocal}</span></div><p className="result-notice">{contentResult.notice}</p><div className="result-grid">{contentResult.pieces.map((piece, index) => <article className="result-card panel" key={`${piece.title}-${index}`}><p className="eyebrow">{contentResult.mode === "ideas" ? `${t.ideasMode} ${index + 1}` : t.generated}</p><h3>{piece.title}</h3><div className="result-block"><strong>{t.hookLabel}</strong><p>{piece.hook}</p></div><div className="result-block"><strong>{t.bodyLabel}</strong><p className="result-body">{piece.body}</p></div>{piece.scenes.length > 0 && <div className="result-block"><strong>{t.scenesLabel}</strong><ol>{piece.scenes.map((scene) => <li key={scene}>{scene}</li>)}</ol></div>}<div className="result-block"><strong>{t.ctaLabel}</strong><p>{piece.cta}</p></div><div className="result-block"><strong>{t.hashtagsLabel}</strong><p className="hashtags">{piece.hashtags.join(" ")}</p></div></article>)}</div></section>}
           {studioTab === "assistant" && <div className="info-strip"><strong>{t.approvalsTitle}</strong><span>{t.approvalsSub}</span></div>}
         </section>}
 

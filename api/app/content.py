@@ -46,7 +46,7 @@ class ContentPiece(BaseModel):
 class ContentResponse(BaseModel):
     mode: ContentMode
     language: Literal["ar", "en"]
-    generator: Literal["free_template"] = "free_template"
+    generator: Literal["free_template", "ollama"] = "free_template"
     notice: str
     pieces: list[ContentPiece]
 

@@ -37,7 +37,7 @@ class ReelScene(BaseModel):
 
 
 class ReelStudioResponse(BaseModel):
-    generator: Literal["free_template"] = "free_template"
+    generator: Literal["free_template", "ollama"] = "free_template"
     title_ar: str
     title_en: str
     duration_seconds: int

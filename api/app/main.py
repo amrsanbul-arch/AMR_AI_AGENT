@@ -2,11 +2,14 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.content import ContentRequest, ContentResponse, generate_content
-from app.reel_studio import ReelStudioRequest, ReelStudioResponse, generate_reel_studio
+from app.content import ContentRequest, ContentResponse
+from app.reel_studio import ReelStudioRequest, ReelStudioResponse
+from app.content_generation import generate_content_with_provider, generate_reel_with_provider
+from app.local_ai import provider_status
+from app.owner_auth import require_owner
 from app.instagram_oauth import router as instagram_router
 from app.instagram_insights import router as instagram_insights_router
 from app.owner_auth import router as owner_auth_router
@@ -54,10 +57,16 @@ app.include_router(instagram_insights_router)
 app.include_router(instagram_publishing_router)
 
 
-@app.post("/api/content/reel-studio", response_model=ReelStudioResponse, tags=["content"])
-def content_reel_studio(request: ReelStudioRequest) -> ReelStudioResponse:
-    """Create a bilingual, editable shot-by-shot Reel outline using local templates."""
-    return generate_reel_studio(request)
+def require_content_access(request: Request) -> None:
+    # Template generation remains usable without sign-in; local-model requests require owner auth.
+    if provider_status()["generator"] == "ollama":
+        require_owner(request)
+
+
+@app.post("/api/content/reel-studio", response_model=ReelStudioResponse, tags=["content"], dependencies=[Depends(require_content_access)])
+async def content_reel_studio(request: ReelStudioRequest) -> ReelStudioResponse:
+    """Create a bilingual Reel outline with local templates or configured local Ollama."""
+    return await generate_reel_with_provider(request)
 
 
 @app.get("/healthz", tags=["system"])
@@ -66,7 +75,13 @@ def health_check() -> dict[str, str]:
     return {"status": "ok", "stage": "instagram_oauth_scaffold", "instagram": "not_connected"}
 
 
-@app.post("/api/content/generate", response_model=ContentResponse, tags=["content"])
-def content_generate(request: ContentRequest) -> ContentResponse:
-    """Generate editable starter ideas, captions, or Reel scripts without paid APIs."""
-    return generate_content(request)
+@app.post("/api/content/generate", response_model=ContentResponse, tags=["content"], dependencies=[Depends(require_content_access)])
+async def content_generate(request: ContentRequest) -> ContentResponse:
+    """Generate drafts using optional server-configured local Ollama or free templates."""
+    return await generate_content_with_provider(request)
+
+
+@app.get("/api/content/provider", tags=["content"])
+def content_provider_status() -> dict[str, object]:
+    """Report the selected generator and model name only; never reveal endpoint or secrets."""
+    return provider_status()
