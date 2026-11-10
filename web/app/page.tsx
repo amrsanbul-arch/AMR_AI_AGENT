@@ -23,6 +23,9 @@ type InsightDatum = { available: boolean; value: number | null; series: InsightP
 type InstagramInsights = { source: "instagram_graph_api"; range_days: number; since: number; until: number; fetched_at: number; metrics: Record<string, InsightDatum> };
 type PublishPost = { id: string; caption: string; media_url: string; media_type: "IMAGE" | "REELS" | "VIDEO"; state: string; scheduled_at?: string | null; instagram_media_id?: string | null; error_code?: string | null };
 type ImageResult = { generator: "comfyui" | "prompt_only"; prompt: string; image_data_url: string | null; notice: string };
+type TrendNews = { title: string; source: string | null; url: string | null };
+type TrendItem = { query: string; approximate_traffic: string | null; started_at: string | null; relevance: number; matched_terms: string[]; news: TrendNews[] };
+type TrendResponse = { source: string; source_url: string; geo: string; topic: string; retrieved_at: string; trend_count: number; trends: TrendItem[]; notice: string };
 
 function defaultImagePrompt(board: ReelBoard): string {
   return `Portrait Instagram Reel visual, ${board.concept_en}. First scene: ${board.scenes[0]?.shot_en || board.title_en}. Editorial lighting, clear focal subject, no text, no logo, no watermark.`;
@@ -113,7 +116,12 @@ export default function Home() {
   const [contentResult, setContentResult] = useState<ContentResult | null>(null);
   const [contentError, setContentError] = useState("");
   const [generatorStatus, setGeneratorStatus] = useState<GeneratorStatus | null>(null);
-  const [studioTab, setStudioTab] = useState<"assistant" | "reels">("reels");
+  const [studioTab, setStudioTab] = useState<"assistant" | "reels" | "trends">("reels");
+  const [trendTopic, setTrendTopic] = useState("");
+  const [trendGeo, setTrendGeo] = useState("EG");
+  const [trendResult, setTrendResult] = useState<TrendResponse | null>(null);
+  const [trendBusy, setTrendBusy] = useState(false);
+  const [trendError, setTrendError] = useState("");
   const [reelDuration, setReelDuration] = useState<15 | 30 | 45>(30);
   const [reelBoard, setReelBoard] = useState<ReelBoard | null>(null);
   const [reelBusy, setReelBusy] = useState(false);
@@ -374,6 +382,19 @@ export default function Home() {
     }
   }
 
+  async function researchTrends(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setTrendBusy(true); setTrendError(""); setTrendResult(null);
+    try {
+      const params = new URLSearchParams({ topic: trendTopic.trim(), geo: trendGeo });
+      const response = await fetch(`${apiBase}/api/trends/research?${params.toString()}`, { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || "trend-research-failed");
+      setTrendResult(payload as TrendResponse);
+    } catch {
+      setTrendError(lang === "ar" ? "تعذر تحميل مؤشرات البحث العامة الآن. حاول مرة أخرى لاحقًا." : "Could not load public search trends right now. Try again later.");
+    } finally { setTrendBusy(false); }
+  }
+
   async function generateReelBoard(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setReelBusy(true); setReelError("");
     try {
@@ -531,6 +552,7 @@ VO AR: ${scene.voiceover_ar}`).join("\n\n");
           <div className="studio-switch" role="tablist" aria-label={lang === "ar" ? "أدوات الاستوديو" : "Studio tools"}>
             <button role="tab" aria-selected={studioTab === "reels"} className={studioTab === "reels" ? "active" : ""} onClick={() => setStudioTab("reels")} type="button">{lang === "ar" ? "استوديو Reels" : "Reels studio"}</button>
             <button role="tab" aria-selected={studioTab === "assistant"} className={studioTab === "assistant" ? "active" : ""} onClick={() => setStudioTab("assistant")} type="button">{lang === "ar" ? "أفكار وكابشنات" : "Ideas & captions"}</button>
+            <button role="tab" aria-selected={studioTab === "trends"} className={studioTab === "trends" ? "active" : ""} onClick={() => setStudioTab("trends")} type="button">{lang === "ar" ? "بحث الترندات" : "Trend research"}</button>
           </div>
           {studioTab === "reels" && <>
             <div className="studio-workspace panel reel-setup">
@@ -570,6 +592,28 @@ VO AR: ${scene.voiceover_ar}`).join("\n\n");
                 {imageError && <p className="form-error" role="alert">{imageError}</p>}
                 {imageResult && <div className="image-result" aria-live="polite"><p className="result-notice">{imageResult.notice}</p>{imageResult.image_data_url ? <img className="generated-image" src={imageResult.image_data_url} alt={lang === "ar" ? "صورة مولدة محليًا" : "Locally generated visual"}/> : <p className="prompt-fallback">{imageResult.prompt}</p>}</div>}
               </section>
+            </section>}
+          </>}
+          {studioTab === "trends" && <>
+            <div className="studio-workspace panel trend-workspace">
+              <div className="studio-intro"><span className="studio-art"><Icon name="chart" size={24}/></span><div><h2>{lang === "ar" ? "استكشف مؤشرات البحث العامة" : "Explore public search trends"}</h2><p>{lang === "ar" ? "ابحث عن موضوعك في مؤشرات Google Trends العامة، ثم استخدم النتائج كمدخل لأفكار أصلية." : "Check your topic against public Google Trends signals, then use them as prompts for original ideas."}</p></div></div>
+              <form className="content-form trend-form" onSubmit={researchTrends}>
+                <div className="form-field"><label htmlFor="trend-topic">{lang === "ar" ? "موضوع حسابك أو المحتوى" : "Your account or content topic"}</label><input id="trend-topic" required minLength={2} maxLength={120} value={trendTopic} onChange={(event) => setTrendTopic(event.target.value)} placeholder={t.topicPlaceholder}/></div>
+                <div className="form-field"><label htmlFor="trend-geo">{lang === "ar" ? "بلد المؤشرات" : "Trend region"}</label><select id="trend-geo" value={trendGeo} onChange={(event) => setTrendGeo(event.target.value)}><option value="EG">{lang === "ar" ? "مصر" : "Egypt"}</option><option value="US">{lang === "ar" ? "الولايات المتحدة" : "United States"}</option><option value="GB">{lang === "ar" ? "المملكة المتحدة" : "United Kingdom"}</option><option value="SA">{lang === "ar" ? "السعودية" : "Saudi Arabia"}</option><option value="AE">{lang === "ar" ? "الإمارات" : "United Arab Emirates"}</option></select></div>
+                <button className="primary-button studio-submit" type="submit" disabled={trendBusy || trendTopic.trim().length < 2}><span>{trendBusy ? (lang === "ar" ? "جارٍ البحث…" : "Researching…") : (lang === "ar" ? "اعرض المؤشرات" : "Show trends")}</span><Icon name="chart" size={17}/></button>
+                {trendError && <p className="form-error" role="alert">{trendError}</p>}
+              </form>
+            </div>
+            {trendResult && <section className="trend-results" aria-live="polite">
+              <div className="results-heading"><div><h2>{lang === "ar" ? `مؤشرات مرتبطة بـ «${trendResult.topic}»` : `Signals related to “${trendResult.topic}”`}</h2><p className="trend-meta"><a href={trendResult.source_url} target="_blank" rel="noopener noreferrer">{trendResult.source}</a> · {lang === "ar" ? `آخر جلب: ${new Date(trendResult.retrieved_at).toLocaleString("ar-EG")}` : `Fetched ${new Date(trendResult.retrieved_at).toLocaleString()}`}</p></div><span className="status-tag">{trendResult.trend_count} {lang === "ar" ? "موضوعًا" : "signals"}</span></div>
+              <p className="trend-caveat">{lang === "ar" ? "دي مؤشرات بحث عامة من Google، مش ترندات Instagram ولا بيانات جمهورك. القائمة صغيرة، وحركة البحث تقديرية؛ درجة الصلة مجرد تطابق كلمات بسيط." : trendResult.notice}</p>
+              <div className="trend-grid">{trendResult.trends.map((item) => <article className="trend-card panel" key={`${item.query}-${item.started_at}`}>
+                <div className="trend-card-head"><div><span className="eyebrow">{lang === "ar" ? "بحث رائج" : "TRENDING SEARCH"}</span><h3>{item.query}</h3></div><strong className="trend-score" aria-label={`${item.relevance}% ${lang === "ar" ? "تطابق كلمات" : "keyword match"}`}>{item.relevance}%</strong></div>
+                <div className="trend-facts">{item.approximate_traffic && <span>{lang === "ar" ? "حركة تقريبية" : "Approx. search traffic"}: {item.approximate_traffic}</span>}{item.started_at && <span>{new Date(item.started_at).toLocaleDateString(lang === "ar" ? "ar-EG" : "en-GB")}</span>}</div>
+                {item.matched_terms.length > 0 && <p className="trend-matches">{lang === "ar" ? "كلمات متطابقة: " : "Matched words: "}{item.matched_terms.join("، ")}</p>}
+                {item.news.length > 0 && <div className="trend-news"><strong>{lang === "ar" ? "سياق إخباري من المصدر" : "Source news context"}</strong>{item.news.map((news) => <p key={`${news.title}-${news.url}`}>{news.url ? <a href={news.url} target="_blank" rel="noopener noreferrer">{news.title}</a> : news.title}{news.source ? ` · ${news.source}` : ""}</p>)}</div>}
+                <button className="secondary-button trend-use" type="button" onClick={() => { setTopic(item.query); setStudioTab("assistant"); }}>{lang === "ar" ? "حوّلها لمسودة محتوى" : "Turn into a content draft"}</button>
+              </article>)}</div>
             </section>}
           </>}
           {studioTab === "assistant" && <div className="studio-workspace panel">

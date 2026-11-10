@@ -15,6 +15,7 @@ from app.instagram_oauth import router as instagram_router
 from app.instagram_insights import router as instagram_insights_router
 from app.owner_auth import router as owner_auth_router
 from app.instagram_publishing import router as instagram_publishing_router, scheduler_enabled, scheduled_publisher_loop
+from app.trends import router as trends_router
 
 
 @asynccontextmanager
@@ -33,7 +34,7 @@ async def lifespan(_app):
 
 app = FastAPI(
     title="AMR AI – Personal Instagram Manager",
-    version="0.4.0",
+    version="0.5.0",
     description="Content assistant and optional official Instagram OAuth scaffold. No account is connected by default.",
     lifespan=lifespan,
 )
@@ -57,6 +58,7 @@ app.include_router(instagram_router)
 app.include_router(instagram_insights_router)
 app.include_router(instagram_publishing_router)
 app.include_router(image_router)
+app.include_router(trends_router)
 
 
 def require_content_access(request: Request) -> None:
@@ -74,7 +76,7 @@ async def content_reel_studio(request: ReelStudioRequest) -> ReelStudioResponse:
 @app.get("/healthz", tags=["system"])
 def health_check() -> dict[str, str]:
     """Report process health; not a live Instagram check."""
-    return {"status": "ok", "stage": "instagram_oauth_scaffold", "instagram": "not_connected"}
+    return {"status": "ok", "stage": "amr_ai_api", "instagram": "not_connected"}
 
 
 @app.post("/api/content/generate", response_model=ContentResponse, tags=["content"], dependencies=[Depends(require_content_access)])

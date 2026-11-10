@@ -11,7 +11,7 @@ def test_health_endpoint_reports_stage_without_claiming_instagram_connection() -
     assert response.status_code == 200
     assert response.json() == {
         "status": "ok",
-        "stage": "instagram_oauth_scaffold",
+        "stage": "amr_ai_api",
         "instagram": "not_connected",
     }
 

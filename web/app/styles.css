@@ -270,3 +270,21 @@ button:focus-visible,a:focus-visible { outline:3px solid #90cfb1; outline-offset
 .image-result { display:grid; gap:8px; }
 .generated-image { display:block; width:min(100%,480px); max-height:640px; object-fit:contain; border:1px solid var(--line); border-radius:14px; background:#fff; }
 .prompt-fallback { max-width:760px; margin:0; padding:14px; border:1px dashed #c8d8cc; border-radius:12px; color:#40554a; background:#fff; font-size:12px; line-height:1.8; overflow-wrap:anywhere; }
+
+/* Public-search trend research (not Instagram analytics) */
+.trend-form { max-width: 780px; }
+.trend-results { margin-top: 22px; }
+.trend-meta { margin: 5px 0 0; color: #87948c; font-size: 10px; }
+.trend-caveat { margin: 12px 0; padding: 11px 13px; border-inline-start: 3px solid #c89443; border-radius: 8px; background: #fff8eb; color: #715927; font-size: 11px; line-height: 1.8; }
+.trend-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,290px),1fr)); gap: 12px; }
+.trend-card { min-width: 0; padding: 16px; }
+.trend-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.trend-card h3 { margin: 5px 0 0; color: #294638; font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; }
+.trend-score { flex: none; display: grid; place-items: center; width: 43px; height: 43px; border-radius: 14px; background: #eaf3ed; color: #2d6d52; font: 700 12px "DM Sans",sans-serif; }
+.trend-facts { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 12px; color: #78867d; font-size: 10px; }
+.trend-matches { margin: 9px 0 0; color: #557565; font-size: 10px; }
+.trend-news { margin-top: 12px; padding-top: 10px; border-top: 1px solid #edf1ed; }
+.trend-news > strong { color: #728078; font-size: 10px; }
+.trend-news p { margin: 6px 0 0; color: #52665a; font-size: 10px; line-height: 1.6; overflow-wrap: anywhere; }
+.trend-news a { color: #26704b; font-weight: 600; }
+.trend-use { margin-top: 14px; width: 100%; min-height: 42px; }
