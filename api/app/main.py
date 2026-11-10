@@ -18,6 +18,7 @@ from app.instagram_publishing import router as instagram_publishing_router, sche
 from app.trends import router as trends_router
 from app.strategy import router as strategy_router
 from app.profile_audit import router as profile_audit_router
+from app.reel_assembly import router as reel_assembly_router
 
 
 @asynccontextmanager
@@ -63,6 +64,7 @@ app.include_router(image_router)
 app.include_router(trends_router)
 app.include_router(strategy_router)
 app.include_router(profile_audit_router)
+app.include_router(reel_assembly_router)
 
 
 def require_content_access(request: Request) -> None:

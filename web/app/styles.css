@@ -334,3 +334,31 @@ button:focus-visible,a:focus-visible { outline:3px solid #90cfb1; outline-offset
 .profile-audit-section dt { color:#77847b; font-size:10px; }
 .profile-audit-section dd { margin:4px 0 0; color:#324a3c; font-size:12px; font-weight:700; }
 @media(max-width:760px) { .mobile-nav { grid-template-columns:repeat(5,minmax(0,1fr)); } .mobile-nav button { font-size:7px; } .profile-audit { padding:14px; } .profile-audit-fields,.profile-audit-section dl { grid-template-columns:1fr; } .profile-bio-field { grid-column:auto; } .profile-audit .panel-heading { flex-direction:column; } }
+
+
+/* Local, user-controlled Reel assembly bundle */
+.assembly-panel { display:grid; gap:14px; margin-top:18px; padding:clamp(16px,3vw,24px); border:1px solid #dce9df; border-radius:18px; background:#fcfdfb; }
+.assembly-heading h3 { margin:3px 0 6px; font-size:17px; }
+.assembly-heading p:last-child { max-width:760px; margin:0; color:var(--muted); font-size:12px; line-height:1.8; }
+.assembly-file { display:grid; gap:7px; min-width:0; color:#53665a; font-size:11px; font-weight:700; }
+.assembly-file input[type=file] { box-sizing:border-box; width:100%; min-height:42px; border:1px solid #e3ebe5; border-radius:9px; padding:8px; background:#fff; color:#526358; font:inherit; }
+.assembly-file small { color:#89968e; font-size:10px; font-weight:400; line-height:1.7; }
+.assembly-file .secondary-button { justify-self:start; min-height:34px; padding:0 11px; }
+.assembly-scenes { display:grid; gap:8px; padding:0; margin:0; list-style:none; }
+.assembly-scenes li { display:grid; grid-template-columns:32px minmax(0,1fr) auto auto; align-items:center; gap:9px; min-width:0; padding:9px; border:1px solid #e8eee9; border-radius:11px; background:#fff; }
+.assembly-index { display:grid; place-items:center; width:29px; height:29px; border-radius:9px; background:#edf5ef; color:#38664d; font-size:10px; font-weight:800; }
+.assembly-filename { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#526358; font-size:11px; }
+.assembly-duration { display:flex; align-items:center; gap:5px; color:#87948c; font-size:9px; }
+.assembly-duration select { min-height:35px; border:1px solid #e2eae3; border-radius:7px; padding:0 6px; background:#fff; color:#34493c; font:inherit; }
+.assembly-controls { display:flex; gap:4px; }
+.assembly-controls .secondary-button { min-width:33px; min-height:33px; padding:0 7px; }
+.assembly-controls button:disabled { opacity:.4; }
+.assembly-limits { margin:0; padding:11px 13px; border-inline-start:3px solid #c89443; border-radius:8px; background:#fff8eb; color:#715927; font-size:10px; line-height:1.8; }
+.assembly-panel > .primary-button { justify-self:start; background:var(--green); color:#fff; }
+.assembly-panel > .primary-button:disabled { opacity:.5; }
+@media(max-width:600px) {
+ .assembly-scenes li { grid-template-columns:29px minmax(0,1fr) auto; gap:6px; }
+ .assembly-controls { grid-column:2 / -1; justify-content:flex-end; }
+ .assembly-duration { justify-self:end; }
+ .assembly-panel > .primary-button { width:100%; }
+}

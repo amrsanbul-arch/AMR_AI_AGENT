@@ -113,6 +113,7 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
     chart: <><path d="M4 19V5M4 19h17"/><path d="m7 15 4-4 3 2 5-6"/></>,
     settings: <><circle cx="12" cy="12" r="3"/><path d="m19.4 15 .1.1 1.4 1.1-1.4 2.4-1.7-.6a8 8 0 0 1-1.8 1l-.3 1.8h-2.8l-.3-1.8a8 8 0 0 1-1.8-1l-1.7.6-1.4-2.4 1.4-1.1A7 7 0 0 1 7 13l-1.7-.8.7-2.7 1.8.1a8 8 0 0 1 1.4-1.5L8.8 6.3l2.6-1.1 1 1.5a8 8 0 0 1 2.1 0l1-1.5 2.6 1.1-.4 1.8a8 8 0 0 1 1.4 1.5l1.8-.1.7 2.7-1.7.8a7 7 0 0 1-.5 2Z"/></>,
     arrow: <><path d="M5 12h14M13 6l6 6-6 6"/></>,
+    download: <><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v3h16v-3"/></>,
     lock: <><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 1 1 8 0v3"/></>,
   };
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{paths[name] ?? paths.grid}</svg>;
@@ -164,6 +165,12 @@ export default function Home() {
   const [imageResult, setImageResult] = useState<ImageResult | null>(null);
   const [imageBusy, setImageBusy] = useState(false);
   const [imageError, setImageError] = useState("");
+  const [assemblyImages, setAssemblyImages] = useState<File[]>([]);
+  const [assemblyDurations, setAssemblyDurations] = useState<number[]>([]);
+  const [assemblyAudio, setAssemblyAudio] = useState<File | null>(null);
+  const [assemblyBusy, setAssemblyBusy] = useState(false);
+  const [assemblyMessage, setAssemblyMessage] = useState("");
+  const [assemblyError, setAssemblyError] = useState("");
   const [generating, setGenerating] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [ownerSession, setOwnerSession] = useState<OwnerSession>({ configured: false, authenticated: false });
@@ -530,6 +537,104 @@ VO AR: ${scene.voiceover_ar}`).join("\n\n");
     const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([contents], { type: "text/plain;charset=utf-8" })); link.download = "reel-storyboard-bilingual.txt"; link.click(); URL.revokeObjectURL(link.href);
   }
 
+  function addAssemblyImages(fileList: FileList | null) {
+    if (!fileList) return;
+    setAssemblyError(""); setAssemblyMessage("");
+    const incoming = Array.from(fileList);
+    const supported = incoming.filter((file) => /\.(jpe?g|png|webp)$/i.test(file.name) && file.size <= 8 * 1024 * 1024);
+    if (supported.length !== incoming.length) {
+      setAssemblyError(lang === "ar" ? "تُقبل صور JPG أو PNG أو WebP فقط، بحد 8MB للصورة؛ لم تُضف الملفات." : "Choose only JPG, PNG, or WebP images up to 8 MB each; no files were added.");
+      return;
+    }
+    if (assemblyImages.length + supported.length > 12) {
+      setAssemblyError(lang === "ar" ? "الحد الأقصى 12 صورة للمشروع؛ لم تُضف الملفات." : "A project can include up to 12 images; no files were added.");
+      return;
+    }
+    const selected = [...assemblyImages, ...supported];
+    const size = selected.reduce((sum, file) => sum + file.size, assemblyAudio?.size ?? 0);
+    if (size > 24 * 1024 * 1024) {
+      setAssemblyError(lang === "ar" ? "إجمالي ملفات الحزمة يتجاوز 24MB؛ لم تُضف الصور." : "The bundle would exceed 24 MB; no images were added.");
+      return;
+    }
+    setAssemblyImages(selected);
+    setAssemblyDurations((current) => [...current, ...supported.map(() => 4)]);
+  }
+
+  function addAssemblyAudio(file: File | null) {
+    setAssemblyError(""); setAssemblyMessage("");
+    if (!file) { setAssemblyAudio(null); return; }
+    if (!/\.(mp3|m4a|wav|aac)$/i.test(file.name)) {
+      setAssemblyError(lang === "ar" ? "صيغة الصوت يجب أن تكون MP3 أو M4A أو WAV أو AAC." : "Audio must be MP3, M4A, WAV, or AAC.");
+      return;
+    }
+    if (file.size + assemblyImages.reduce((sum, image) => sum + image.size, 0) > 24 * 1024 * 1024) {
+      setAssemblyError(lang === "ar" ? "إجمالي ملفات الحزمة يتجاوز 24MB؛ لم يُضف الصوت." : "The bundle would exceed 24 MB; audio was not added.");
+      return;
+    }
+    setAssemblyAudio(file);
+  }
+
+  function setAssemblyDuration(index: number, value: string) {
+    const seconds = Math.max(1, Math.min(60, Number.parseInt(value, 10) || 1));
+    const total = assemblyDurations.reduce((sum, duration, current) => sum + (current === index ? seconds : duration), 0);
+    if (total > 180) {
+      setAssemblyError(lang === "ar" ? "إجمالي مدة الفيديو لا يتجاوز 180 ثانية." : "Total video duration cannot exceed 180 seconds.");
+      return;
+    }
+    setAssemblyError("");
+    setAssemblyDurations((current) => current.map((duration, currentIndex) => currentIndex === index ? seconds : duration));
+  }
+
+  function moveAssemblyImage(index: number, delta: number) {
+    const target = index + delta;
+    if (target < 0 || target >= assemblyImages.length) return;
+    setAssemblyImages((current) => { const next = [...current]; [next[index], next[target]] = [next[target], next[index]]; return next; });
+    setAssemblyDurations((current) => { const next = [...current]; [next[index], next[target]] = [next[target], next[index]]; return next; });
+  }
+
+  function removeAssemblyImage(index: number) {
+    setAssemblyImages((current) => current.filter((_, i) => i !== index));
+    setAssemblyDurations((current) => current.filter((_, i) => i !== index));
+  }
+
+  async function exportReelAssemblyBundle() {
+    if (!assemblyImages.length) return;
+    setAssemblyBusy(true); setAssemblyError(""); setAssemblyMessage("");
+    try {
+      const response = await fetch(`${apiBase}/api/content/reel-assembly/plan`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scenes: assemblyImages.map((file, index) => ({ image_extension: file.name.split(".").pop()?.toLowerCase(), duration_seconds: assemblyDurations[index] ?? 4 })),
+          audio_extension: assemblyAudio?.name.split(".").pop()?.toLowerCase() ?? null,
+        }),
+      });
+      if (!response.ok) throw new Error("plan-failed");
+      const plan = await response.json() as { script: string; note_ar: string; note_en: string; duration_seconds: number };
+      const JSZip = (await import("jszip")).default;
+      const zip = new JSZip();
+      const assets = zip.folder("assets");
+      if (!assets) throw new Error("zip-failed");
+      assemblyImages.forEach((file, index) => {
+        const extension = file.name.split(".").pop()!.toLowerCase();
+        assets.file(`scene_${String(index + 1).padStart(2, "0")}.${extension}`, file);
+      });
+      if (assemblyAudio) {
+        const extension = assemblyAudio.name.split(".").pop()!.toLowerCase();
+        assets.file(`soundtrack.${extension}`, assemblyAudio);
+      }
+      zip.file("render.sh", plan.script);
+      const scenesList = assemblyImages.map((file, index) => `${String(index + 1).padStart(2, "0")}. ${file.name} — ${assemblyDurations[index] ?? 4}s`).join("\n");
+      zip.file("README.txt", `${plan.note_en}\n\n${plan.note_ar}\n\nScenes / المشاهد:\n${scenesList}\n\nOutput: draft.mp4 · 720x1280 · 30 fps · H.264, yuv420p${assemblyAudio ? " · AAC soundtrack" : " · no audio"}\n\nRun: bash render.sh\n`);
+      const blob = await zip.generateAsync({ type: "blob", compression: "STORE" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a"); link.href = url; link.download = "amr-reel-draft-bundle.zip"; link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      setAssemblyMessage(lang === "ar" ? `نزلت حزمة التجهيز (${plan.duration_seconds} ثانية). شغّل render.sh محليًا لإنتاج MP4.` : `Exported a ${plan.duration_seconds}s prep bundle. Run render.sh locally to create the MP4.`);
+    } catch {
+      setAssemblyError(lang === "ar" ? "تعذر تجهيز الحزمة. تأكد من تشغيل API ثم حاول مجددًا." : "Could not prepare the bundle. Check that the API is running, then try again.");
+    } finally { setAssemblyBusy(false); }
+  }
+
   function insightValue(name: string): string {
     const datum = instagramInsights?.metrics?.[name];
     return datum?.available && typeof datum.value === "number"
@@ -703,6 +808,15 @@ VO AR: ${scene.voiceover_ar}`).join("\n\n");
                 <button className="primary-button" type="button" disabled={imageBusy || imagePrompt.trim().length < 2} onClick={() => void generateReelImage()}>{imageBusy ? (lang === "ar" ? "جارٍ التوليد محليًا…" : "Generating locally…") : (lang === "ar" ? "جرّب توليد الصورة" : "Try image generation")}<Icon name="spark" size={17}/></button>
                 {imageError && <p className="form-error" role="alert">{imageError}</p>}
                 {imageResult && <div className="image-result" aria-live="polite"><p className="result-notice">{imageResult.notice}</p>{imageResult.image_data_url ? <img className="generated-image" src={imageResult.image_data_url} alt={lang === "ar" ? "صورة مولدة محليًا" : "Locally generated visual"}/> : <p className="prompt-fallback">{imageResult.prompt}</p>}</div>}
+              </section>
+              <section className="assembly-panel panel" aria-labelledby="assembly-title">
+                <div className="assembly-heading"><p className="eyebrow">{lang === "ar" ? "تصدير محلي · بدون نشر" : "LOCAL EXPORT · NO PUBLISHING"}</p><h3 id="assembly-title">{lang === "ar" ? "ركّب مسودة فيديو من صورك" : "Assemble a draft from your photos"}</h3><p>{lang === "ar" ? "اختر صورك أو موادك المرخّصة ورتّبها وحدد مدة كل مشهد. الحزمة تُجهّز على جهازك؛ الصور لا تُرفع إلى الخادم." : "Choose and order your own or licensed stills, set each scene duration, and export a local bundle. Your media is not uploaded."}</p></div>
+                <label className="assembly-file"><span>{lang === "ar" ? "صور المشاهد (JPG / PNG / WebP)" : "Scene images (JPG / PNG / WebP)"}</span><input type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple onChange={(event) => { addAssemblyImages(event.target.files); event.currentTarget.value = ""; }}/><small>{lang === "ar" ? "حتى 12 صورة، 8MB للصورة؛ إجمالي الحزمة 24MB." : "Up to 12 images, 8 MB each; 24 MB total bundle."}</small></label>
+                {assemblyImages.length > 0 && <ol className="assembly-scenes">{assemblyImages.map((file, index) => <li key={`${file.name}-${index}`}><span className="assembly-index">{String(index + 1).padStart(2, "0")}</span><span className="assembly-filename" title={file.name}>{file.name}</span><label className="assembly-duration"><span>{lang === "ar" ? "ثوانٍ" : "sec"}</span><select aria-label={lang === "ar" ? `مدة المشهد ${index + 1}` : `Scene ${index + 1} duration`} value={assemblyDurations[index] ?? 4} onChange={(event) => setAssemblyDuration(index, event.target.value)}>{Array.from({ length: 60 }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1}</option>)}</select></label><div className="assembly-controls"><button type="button" className="secondary-button" aria-label={lang === "ar" ? "تحريك لأعلى" : "Move up"} disabled={index === 0} onClick={() => moveAssemblyImage(index, -1)}>↑</button><button type="button" className="secondary-button" aria-label={lang === "ar" ? "تحريك لأسفل" : "Move down"} disabled={index === assemblyImages.length - 1} onClick={() => moveAssemblyImage(index, 1)}>↓</button><button type="button" className="secondary-button" aria-label={lang === "ar" ? "حذف المشهد" : "Remove scene"} onClick={() => removeAssemblyImage(index)}>×</button></div></li>)}</ol>}
+                <label className="assembly-file"><span>{lang === "ar" ? "موسيقى أو صوت اختياري" : "Optional soundtrack or audio"}</span><input type="file" accept=".mp3,.m4a,.wav,.aac,audio/mpeg,audio/mp4,audio/wav,audio/aac" onChange={(event) => { addAssemblyAudio(event.target.files?.[0] ?? null); event.currentTarget.value = ""; }}/><small>{assemblyAudio ? `${lang === "ar" ? "محدد" : "Selected"}: ${assemblyAudio.name}` : (lang === "ar" ? "MP3 / M4A / WAV / AAC · استخدم صوتًا تملك حق استخدامه." : "MP3 / M4A / WAV / AAC · use audio you have rights to use.")}</small>{assemblyAudio && <button type="button" className="secondary-button" onClick={() => addAssemblyAudio(null)}>{lang === "ar" ? "إزالة الصوت" : "Remove audio"}</button>}</label>
+                <p className="assembly-limits">{lang === "ar" ? "الناتج صور ثابتة فقط، 720×1280 و30 إطارًا/ثانية بصيغة MP4/H.264. يتطلب FFmpeg مثبتًا محليًا على كمبيوتر أو Android/Termux؛ التطبيق يصدّر الحزمة فقط ولا يرندر الفيديو أو ينشره تلقائيًا. أضف النصوص يدويًا." : "Still-image slideshow only: MP4/H.264, 720×1280 at 30 fps. FFmpeg must be installed locally on a computer or Android/Termux; this app exports the bundle but does not render or publish automatically. Add text manually."}</p>
+                <button type="button" className="primary-button" disabled={assemblyBusy || assemblyImages.length === 0} onClick={() => void exportReelAssemblyBundle()}>{assemblyBusy ? (lang === "ar" ? "جارٍ تجهيز الحزمة…" : "Preparing bundle…") : (lang === "ar" ? "نزّل حزمة الفيديو المحلية" : "Download local video bundle")}<Icon name="download" size={17}/></button>
+                {assemblyError && <p className="form-error" role="alert">{assemblyError}</p>}{assemblyMessage && <p className="result-notice" role="status">{assemblyMessage}</p>}
               </section>
             </section>}
           </>}
