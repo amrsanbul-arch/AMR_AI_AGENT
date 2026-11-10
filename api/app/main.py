@@ -9,6 +9,7 @@ from app.content import ContentRequest, ContentResponse
 from app.reel_studio import ReelStudioRequest, ReelStudioResponse
 from app.content_generation import generate_content_with_provider, generate_reel_with_provider
 from app.local_ai import provider_status
+from app.image_generation import router as image_router
 from app.owner_auth import require_owner
 from app.instagram_oauth import router as instagram_router
 from app.instagram_insights import router as instagram_insights_router
@@ -55,6 +56,7 @@ app.include_router(owner_auth_router)
 app.include_router(instagram_router)
 app.include_router(instagram_insights_router)
 app.include_router(instagram_publishing_router)
+app.include_router(image_router)
 
 
 def require_content_access(request: Request) -> None:

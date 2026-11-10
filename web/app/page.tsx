@@ -22,6 +22,11 @@ type InsightPoint = { value: number; end_time?: string };
 type InsightDatum = { available: boolean; value: number | null; series: InsightPoint[]; reason?: string | null };
 type InstagramInsights = { source: "instagram_graph_api"; range_days: number; since: number; until: number; fetched_at: number; metrics: Record<string, InsightDatum> };
 type PublishPost = { id: string; caption: string; media_url: string; media_type: "IMAGE" | "REELS" | "VIDEO"; state: string; scheduled_at?: string | null; instagram_media_id?: string | null; error_code?: string | null };
+type ImageResult = { generator: "comfyui" | "prompt_only"; prompt: string; image_data_url: string | null; notice: string };
+
+function defaultImagePrompt(board: ReelBoard): string {
+  return `Portrait Instagram Reel visual, ${board.concept_en}. First scene: ${board.scenes[0]?.shot_en || board.title_en}. Editorial lighting, clear focal subject, no text, no logo, no watermark.`;
+}
 
 const words: Record<Lang, Copy> = {
   ar: {
@@ -114,6 +119,10 @@ export default function Home() {
   const [reelBusy, setReelBusy] = useState(false);
   const [reelError, setReelError] = useState("");
   const [reelSaved, setReelSaved] = useState(false);
+  const [imagePrompt, setImagePrompt] = useState("");
+  const [imageResult, setImageResult] = useState<ImageResult | null>(null);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [imageError, setImageError] = useState("");
   const [generating, setGenerating] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [ownerSession, setOwnerSession] = useState<OwnerSession>({ configured: false, authenticated: false });
@@ -140,7 +149,11 @@ export default function Home() {
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem("amr-reel-studio-v1");
-      if (saved) setReelBoard(JSON.parse(saved) as ReelBoard);
+      if (saved) {
+        const board = JSON.parse(saved) as ReelBoard;
+        setReelBoard(board);
+        setImagePrompt(window.localStorage.getItem("amr-reel-image-prompt-v1") || defaultImagePrompt(board));
+      }
     } catch { /* Ignore stale or malformed local drafts. */ }
   }, []);
 
@@ -151,6 +164,10 @@ export default function Home() {
       setReelSaved(true);
     } catch { setReelSaved(false); }
   }, [reelBoard]);
+
+  useEffect(() => {
+    try { window.localStorage.setItem("amr-reel-image-prompt-v1", imagePrompt); } catch { /* Prompt remains editable for this session. */ }
+  }, [imagePrompt]);
 
   useEffect(() => {
     const base = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -365,10 +382,31 @@ export default function Home() {
         body: JSON.stringify({ topic, audience, duration_seconds: reelDuration, tone }),
       });
       if (!response.ok) throw new Error("reel-studio-failed");
-      setReelBoard(await response.json() as ReelBoard);
+      const board = await response.json() as ReelBoard;
+      setReelBoard(board);
+      setImagePrompt(defaultImagePrompt(board));
+      setImageResult(null); setImageError("");
     } catch {
       setReelError(lang === "ar" ? "تعذر تجهيز لوحة الـReel. تأكد أن خادم المشروع يعمل ثم أعد المحاولة." : "Could not build the Reel board. Check that the project server is running, then try again.");
     } finally { setReelBusy(false); }
+  }
+
+  async function generateReelImage() {
+    if (!imagePrompt.trim()) return;
+    setImageBusy(true); setImageError(""); setImageResult(null);
+    try {
+      const response = await fetch(`${apiBase}/api/content/image`, {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: imagePrompt }),
+      });
+      if (response.status === 401) { setOwnerSession((current) => ({ ...current, authenticated: false })); throw new Error("owner-login-required"); }
+      if (!response.ok) throw new Error("image-generation-failed");
+      setImageResult(await response.json() as ImageResult);
+    } catch (error) {
+      setImageError(error instanceof Error && error.message === "owner-login-required"
+        ? (lang === "ar" ? "سجّل دخول المالك لتوليد صورة عبر الخادم المحلي." : "Sign in as owner to use local image generation.")
+        : (lang === "ar" ? "تعذر الوصول إلى خدمة الصور. ما زال بإمكانك نسخ الوصف واستخدامه يدويًا." : "Could not reach the image service. You can still copy and use the prompt manually."));
+    } finally { setImageBusy(false); }
   }
 
   function updateReelScene(index: number, field: keyof ReelScene, value: string) {
@@ -525,6 +563,13 @@ VO AR: ${scene.voiceover_ar}`).join("\n\n");
               </article>)}</div>
               <div className="reel-captions"><label className="scene-edit"><span>{lang === "ar" ? "الكابشن · عربي" : "Caption · Arabic"}<small>{reelBoard.caption_ar.length}/2,200</small></span><textarea rows={4} maxLength={2200} value={reelBoard.caption_ar} onChange={(event) => setReelBoard((board) => board ? { ...board, caption_ar: event.target.value } : board)}/></label><label className="scene-edit" dir="ltr"><span>Caption · English<small>{reelBoard.caption_en.length}/2,200</small></span><textarea rows={4} maxLength={2200} value={reelBoard.caption_en} onChange={(event) => setReelBoard((board) => board ? { ...board, caption_en: event.target.value } : board)}/></label></div>
               <p className="reel-note">{lang === "ar" ? reelBoard.production_note_ar : reelBoard.production_note_en}</p>
+              <section className="image-generation-panel panel" aria-labelledby="image-studio-title">
+                <div><p className="eyebrow">{lang === "ar" ? "اختياري · محلي" : "OPTIONAL · LOCAL"}</p><h3 id="image-studio-title">{lang === "ar" ? "صورة مرجعية للـReel" : "Create a Reel visual"}</h3><p>{lang === "ar" ? "إذا كان ComfyUI مضبوطًا على خادمك، أنشئ صورة محلية؛ وإلا ستحصل على وصف جاهز للنسخ فقط." : "If ComfyUI is configured on your server, generate a local image; otherwise you’ll get a copyable prompt only."}</p></div>
+                <label className="scene-edit"><span>{lang === "ar" ? "وصف الصورة" : "Image prompt"}<small>{imagePrompt.length}/1,600</small></span><textarea rows={4} maxLength={1600} value={imagePrompt} onChange={(event) => setImagePrompt(event.target.value)}/></label>
+                <button className="primary-button" type="button" disabled={imageBusy || imagePrompt.trim().length < 2} onClick={() => void generateReelImage()}>{imageBusy ? (lang === "ar" ? "جارٍ التوليد محليًا…" : "Generating locally…") : (lang === "ar" ? "جرّب توليد الصورة" : "Try image generation")}<Icon name="spark" size={17}/></button>
+                {imageError && <p className="form-error" role="alert">{imageError}</p>}
+                {imageResult && <div className="image-result" aria-live="polite"><p className="result-notice">{imageResult.notice}</p>{imageResult.image_data_url ? <img className="generated-image" src={imageResult.image_data_url} alt={lang === "ar" ? "صورة مولدة محليًا" : "Locally generated visual"}/> : <p className="prompt-fallback">{imageResult.prompt}</p>}</div>}
+              </section>
             </section>}
           </>}
           {studioTab === "assistant" && <div className="studio-workspace panel">
