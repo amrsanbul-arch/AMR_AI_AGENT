@@ -28,6 +28,8 @@ type ImageResult = { generator: "comfyui" | "prompt_only"; prompt: string; image
 type TrendNews = { title: string; source: string | null; url: string | null };
 type TrendItem = { query: string; approximate_traffic: string | null; started_at: string | null; relevance: number; matched_terms: string[]; news: TrendNews[] };
 type TrendResponse = { source: string; source_url: string; geo: string; topic: string; retrieved_at: string; trend_count: number; trends: TrendItem[]; notice: string };
+type StrategyRecommendation = { kind: string; confidence: string; title_ar: string; title_en: string; text_ar: string; text_en: string; evidence: string[] };
+type StrategyReport = { topic: string; geo: string; generated_at: string; status: string; official_source: string | null; official_status: string; sample_size: number; comparable_count: number; missing_metric_count: number; trend_source: string | null; trend_source_url: string | null; trends_status: string; trend_candidates: TrendItem[]; recommendations: StrategyRecommendation[]; limitations_ar: string; limitations_en: string };
 
 function defaultImagePrompt(board: ReelBoard): string {
   return `Portrait Instagram Reel visual, ${board.concept_en}. First scene: ${board.scenes[0]?.shot_en || board.title_en}. Editorial lighting, clear focal subject, no text, no logo, no watermark.`;
@@ -120,12 +122,17 @@ export default function Home() {
   const [contentResult, setContentResult] = useState<ContentResult | null>(null);
   const [contentError, setContentError] = useState("");
   const [generatorStatus, setGeneratorStatus] = useState<GeneratorStatus | null>(null);
-  const [studioTab, setStudioTab] = useState<"assistant" | "reels" | "trends">("reels");
+  const [studioTab, setStudioTab] = useState<"assistant" | "reels" | "trends" | "strategy">("reels");
   const [trendTopic, setTrendTopic] = useState("");
   const [trendGeo, setTrendGeo] = useState("EG");
   const [trendResult, setTrendResult] = useState<TrendResponse | null>(null);
   const [trendBusy, setTrendBusy] = useState(false);
   const [trendError, setTrendError] = useState("");
+  const [strategyTopic, setStrategyTopic] = useState("");
+  const [strategyGeo, setStrategyGeo] = useState("EG");
+  const [strategyReport, setStrategyReport] = useState<StrategyReport | null>(null);
+  const [strategyBusy, setStrategyBusy] = useState(false);
+  const [strategyError, setStrategyError] = useState("");
   const [reelDuration, setReelDuration] = useState<15 | 30 | 45>(30);
   const [reelBoard, setReelBoard] = useState<ReelBoard | null>(null);
   const [reelBusy, setReelBusy] = useState(false);
@@ -404,6 +411,40 @@ export default function Home() {
     } finally { setTrendBusy(false); }
   }
 
+  async function buildStrategyReport(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setStrategyBusy(true); setStrategyError(""); setStrategyReport(null);
+    try {
+      const response = await fetch(`${apiBase}/api/strategy/report`, {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic: strategyTopic.trim(), geo: strategyGeo }),
+      });
+      if (response.status === 401) throw new Error("unauthorized");
+      const payload = await response.json();
+      if (!response.ok) throw new Error("report-failed");
+      setStrategyReport(payload as StrategyReport);
+    } catch (error) {
+      setStrategyError(error instanceof Error && error.message === "unauthorized"
+        ? (lang === "ar" ? "سجّل دخول المالك أولًا؛ التقرير يقرأ بيانات الحساب المصرح بها فقط." : "Sign in as the owner first; the report reads only authorized account data.")
+        : (lang === "ar" ? "تعذر إنشاء التقرير الآن. تأكد من تشغيل الخادم ثم حاول مجددًا." : "Could not build the report. Check that the server is running, then try again."));
+    } finally { setStrategyBusy(false); }
+  }
+
+  function exportStrategyReport() {
+    if (!strategyReport) return;
+    const arabic = lang === "ar";
+    const lines = [
+      arabic ? `تقرير استراتيجية المحتوى: ${strategyReport.topic}` : `Content strategy report: ${strategyReport.topic}`,
+      `${arabic ? "حالة بيانات Instagram" : "Instagram data status"}: ${strategyReport.official_status}`,
+      `${arabic ? "العينة" : "Sample"}: ${strategyReport.sample_size} · ${arabic ? "عناصر قابلة للمقارنة" : "comparable items"}: ${strategyReport.comparable_count}`,
+      `${arabic ? "حالة Google Trends" : "Google Trends status"}: ${strategyReport.trends_status}`,
+      ...strategyReport.recommendations.flatMap((item) => ["", arabic ? item.title_ar : item.title_en, arabic ? item.text_ar : item.text_en, ...(item.evidence.length ? [`${arabic ? "الدليل" : "Evidence"}: ${item.evidence.join("; ")}`] : [])]),
+      "", arabic ? strategyReport.limitations_ar : strategyReport.limitations_en,
+    ];
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob); const link = document.createElement("a");
+    link.href = url; link.download = "amr-ai-content-strategy.txt"; link.click(); URL.revokeObjectURL(url);
+  }
+
   async function generateReelBoard(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setReelBusy(true); setReelError("");
     try {
@@ -584,6 +625,7 @@ VO AR: ${scene.voiceover_ar}`).join("\n\n");
             <button role="tab" aria-selected={studioTab === "reels"} className={studioTab === "reels" ? "active" : ""} onClick={() => setStudioTab("reels")} type="button">{lang === "ar" ? "استوديو Reels" : "Reels studio"}</button>
             <button role="tab" aria-selected={studioTab === "assistant"} className={studioTab === "assistant" ? "active" : ""} onClick={() => setStudioTab("assistant")} type="button">{lang === "ar" ? "أفكار وكابشنات" : "Ideas & captions"}</button>
             <button role="tab" aria-selected={studioTab === "trends"} className={studioTab === "trends" ? "active" : ""} onClick={() => setStudioTab("trends")} type="button">{lang === "ar" ? "بحث الترندات" : "Trend research"}</button>
+            <button role="tab" aria-selected={studioTab === "strategy"} className={studioTab === "strategy" ? "active" : ""} onClick={() => setStudioTab("strategy")} type="button">{lang === "ar" ? "استراتيجية المحتوى" : "Content strategy"}</button>
           </div>
           {studioTab === "reels" && <>
             <div className="studio-workspace panel reel-setup">
@@ -645,6 +687,25 @@ VO AR: ${scene.voiceover_ar}`).join("\n\n");
                 {item.news.length > 0 && <div className="trend-news"><strong>{lang === "ar" ? "سياق إخباري من المصدر" : "Source news context"}</strong>{item.news.map((news) => <p key={`${news.title}-${news.url}`}>{news.url ? <a href={news.url} target="_blank" rel="noopener noreferrer">{news.title}</a> : news.title}{news.source ? ` · ${news.source}` : ""}</p>)}</div>}
                 <button className="secondary-button trend-use" type="button" onClick={() => { setTopic(item.query); setStudioTab("assistant"); }}>{lang === "ar" ? "حوّلها لمسودة محتوى" : "Turn into a content draft"}</button>
               </article>)}</div>
+            </section>}
+          </>}
+          {studioTab === "strategy" && <>
+            <div className="studio-workspace panel strategy-setup">
+              <div className="studio-intro"><span className="studio-art"><Icon name="chart" size={24}/></span><div><h2>{lang === "ar" ? "حوّل البيانات إلى تجارب محتوى" : "Turn available evidence into content experiments"}</h2><p>{lang === "ar" ? "تقرير محافظ يجمع عينة أداء Instagram الرسمية مع إشارات البحث العامة من Google Trends، دون استنتاجات عن الجمهور." : "A cautious report combines official Instagram performance with public Google Trends search signals, without inferring audience preferences."}</p></div></div>
+              <form className="content-form strategy-form" onSubmit={buildStrategyReport}>
+                <div className="form-field"><label htmlFor="strategy-topic">{lang === "ar" ? "موضوع المحتوى للمقارنة" : "Topic to compare"}</label><input id="strategy-topic" required minLength={2} maxLength={120} value={strategyTopic} onChange={(event) => setStrategyTopic(event.target.value)} placeholder={t.topicPlaceholder}/></div>
+                <div className="form-field"><label htmlFor="strategy-geo">{lang === "ar" ? "منطقة بحث Google Trends" : "Google Trends search region"}</label><select id="strategy-geo" value={strategyGeo} onChange={(event) => setStrategyGeo(event.target.value)}><option value="EG">{lang === "ar" ? "مصر" : "Egypt"}</option><option value="US">{lang === "ar" ? "الولايات المتحدة" : "United States"}</option><option value="GB">{lang === "ar" ? "المملكة المتحدة" : "United Kingdom"}</option><option value="SA">{lang === "ar" ? "السعودية" : "Saudi Arabia"}</option><option value="AE">{lang === "ar" ? "الإمارات" : "United Arab Emirates"}</option></select></div>
+                <button className="primary-button studio-submit" type="submit" disabled={strategyBusy || strategyTopic.trim().length < 2}><span>{strategyBusy ? (lang === "ar" ? "جارٍ إعداد التقرير…" : "Building report…") : (lang === "ar" ? "أنشئ التقرير" : "Build report")}</span><Icon name="chart" size={17}/></button>
+                {strategyError && <p className="form-error" role="alert">{strategyError}</p>}
+              </form>
+              <p className="strategy-caveat">{lang === "ar" ? "Google Trends يعرض بحثًا عامًا فقط، وليس ترندات Instagram. لن تظهر تحليلات الحساب إلا عند ربط رسمي وإرجاع مقاييس فعلية." : "Google Trends represents public search only, not Instagram trends. Account analysis appears only after an official connection returns real metrics."}</p>
+            </div>
+            {strategyReport && <section className="strategy-results" aria-live="polite">
+              <div className="results-heading"><div><h2>{lang === "ar" ? `تقرير: ${strategyReport.topic}` : `Report: ${strategyReport.topic}`}</h2><p>{lang === "ar" ? `عينة Instagram: ${strategyReport.sample_size} · قابلة للمقارنة: ${strategyReport.comparable_count} · عناصر ناقصة المقاييس: ${strategyReport.missing_metric_count}` : `Instagram sample: ${strategyReport.sample_size} · comparable: ${strategyReport.comparable_count} · missing metrics: ${strategyReport.missing_metric_count}`}</p></div><button className="secondary-button" type="button" onClick={exportStrategyReport}>{lang === "ar" ? "تصدير التقرير TXT" : "Export report TXT"}</button></div>
+              <div className="strategy-source-row"><span className={`status-tag ${strategyReport.official_status === "available" ? "" : "state-failed"}`}>{lang === "ar" ? `Instagram الرسمي · ${strategyReport.official_status}` : `Official Instagram · ${strategyReport.official_status}`}</span><span className={`status-tag ${strategyReport.trends_status === "available" ? "" : "state-failed"}`}>{strategyReport.trend_source_url ? <a href={strategyReport.trend_source_url} target="_blank" rel="noopener noreferrer">Google Trends · {strategyReport.trends_status}</a> : `Google Trends · ${strategyReport.trends_status}`}</span></div>
+              <div className="strategy-grid">{strategyReport.recommendations.map((item, index) => <article className="strategy-card panel" key={`${item.kind}-${index}`}><div className="strategy-card-top"><span className="eyebrow">{lang === "ar" ? `اقتراح ${index + 1} · ${item.confidence === "exploratory" ? "فرضية للاختبار" : item.confidence === "insufficient" ? "بيانات غير كافية" : "إشارة محدودة"}` : `Suggestion ${index + 1} · ${item.confidence}`}</span></div><h3>{lang === "ar" ? item.title_ar : item.title_en}</h3><p>{lang === "ar" ? item.text_ar : item.text_en}</p>{item.evidence.length > 0 && <small>{item.evidence.join(" · ")}</small>}</article>)}</div>
+              {strategyReport.trend_candidates.length > 0 && <div className="strategy-candidates"><strong>{lang === "ar" ? "إشارات البحث العامة المطابقة" : "Matched public search signals"}</strong>{strategyReport.trend_candidates.map((item) => <span key={item.query}>{item.query} · {item.relevance}% {lang === "ar" ? "تطابق كلمات" : "keyword overlap"}</span>)}</div>}
+              <p className="strategy-caveat">{lang === "ar" ? strategyReport.limitations_ar : strategyReport.limitations_en}</p>
             </section>}
           </>}
           {studioTab === "assistant" && <div className="studio-workspace panel">
