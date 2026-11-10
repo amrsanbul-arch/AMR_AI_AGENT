@@ -314,3 +314,23 @@ button:focus-visible,a:focus-visible { outline:3px solid #90cfb1; outline-offset
   .strategy-results .results-heading { align-items: flex-start; flex-direction: column; }
   .strategy-results .results-heading .secondary-button { width: 100%; }
 }
+
+/* Review-only profile audit; entered context is ephemeral and never written to Instagram. */
+.profile-audit { margin-top:18px; padding:20px; }
+.profile-audit .panel-heading { align-items:flex-start; gap:14px; }
+.profile-audit .panel-heading h2 { margin:0; color:#294638; font-size:18px; }
+.profile-audit .panel-heading p { margin:6px 0 0; color:#87958d; font-size:11px; line-height:1.6; }
+.profile-audit-note { padding:10px 12px; border-radius:10px; background:#f4f7f4; color:#65746a; font-size:11px; line-height:1.6; }
+.profile-audit-form { display:grid; gap:14px; margin-top:16px; }
+.profile-audit-form h3,.profile-audit-section h3 { margin:0; color:#355342; font-size:13px; }
+.profile-audit-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.profile-bio-field { grid-column:1/-1; }
+.profile-audit-results { display:grid; gap:12px; margin-top:20px; }
+.profile-audit-section { padding:14px; border:1px solid #e8ece7; border-radius:12px; background:#fcfdfb; }
+.profile-audit-section p,.profile-audit-section li,.profile-audit-section small { color:#65746a; font-size:11px; line-height:1.7; }
+.profile-audit-section ul { margin:10px 0 0; padding-inline-start:20px; }
+.profile-audit-section dl { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:12px 0 0; }
+.profile-audit-section dl div { padding:9px; border-radius:8px; background:#f3f6f3; overflow-wrap:anywhere; }
+.profile-audit-section dt { color:#77847b; font-size:10px; }
+.profile-audit-section dd { margin:4px 0 0; color:#324a3c; font-size:12px; font-weight:700; }
+@media(max-width:760px) { .mobile-nav { grid-template-columns:repeat(5,minmax(0,1fr)); } .mobile-nav button { font-size:7px; } .profile-audit { padding:14px; } .profile-audit-fields,.profile-audit-section dl { grid-template-columns:1fr; } .profile-bio-field { grid-column:auto; } .profile-audit .panel-heading { flex-direction:column; } }

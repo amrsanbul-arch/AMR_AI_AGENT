@@ -17,6 +17,7 @@ from app.owner_auth import router as owner_auth_router
 from app.instagram_publishing import router as instagram_publishing_router, scheduler_enabled, scheduled_publisher_loop
 from app.trends import router as trends_router
 from app.strategy import router as strategy_router
+from app.profile_audit import router as profile_audit_router
 
 
 @asynccontextmanager
@@ -61,6 +62,7 @@ app.include_router(instagram_publishing_router)
 app.include_router(image_router)
 app.include_router(trends_router)
 app.include_router(strategy_router)
+app.include_router(profile_audit_router)
 
 
 def require_content_access(request: Request) -> None:

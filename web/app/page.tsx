@@ -4,6 +4,8 @@ import { useEffect, useState, type FormEvent } from "react";
 
 type Lang = "ar" | "en";
 type View = "overview" | "studio" | "calendar" | "insights" | "settings";
+type ProfileAudit = { status: string; official_status: string; official_source: string | null; official_fields: Record<string, unknown>; official_fields_not_returned: string[]; checks: { key: string; source: string; status: string }[]; manual_review: { fields_received: string[]; bio_character_count: number | null; bio_contains_simple_cta_cue: boolean | null; bio_contains_manual_niche_text: boolean | null; heuristics_note: string }; review_prompts: { key: string; basis: string }[]; notice: string };
+type ManualProfile = { display_name: string; bio: string; niche: string; audience: string; offer: string; website: string };
 
 type Copy = {
   [key: string]: string;
@@ -58,7 +60,11 @@ const words: Record<Lang, Copy> = {
     generate: "جهّز مسودة", generating: "بجهّز…", generated: "المسودات المقترحة", hookLabel: "الافتتاحية", bodyLabel: "النص", ctaLabel: "دعوة للتفاعل", hashtagsLabel: "هاشتاجات مقترحة", scenesLabel: "تقسيم المشاهد", generatorError: "تعذر الاتصال بخادم المساعد. شغّل API محليًا وحاول تاني.", generatorLocal: "قوالب مجانية", generatorOllama: "نموذج محلي · Ollama", generatorConfigured: "النموذج المحلي جاهز", generatorTemplate: "القوالب المجانية هي البديل",
     loading: "جارٍ التحميل…", authTitle: "دخول المالك", authIntro: "سجّل الدخول لإدارة لوحة حسابك فقط.", authSetup: "أضف كلمة مرور مالك آمنة في إعدادات الخادم.", password: "كلمة مرور المالك", login: "دخول", loginError: "تعذر تسجيل الدخول. تحقق من كلمة المرور وإعداد الخادم.", logout: "تسجيل الخروج",
     connected: "متصل رسميًا", notConfigured: "إعداد الربط غير مكتمل", setupPending: "أكمل إعداد تطبيق Meta ومفاتيح OAuth على الخادم أولًا.", connectOfficial: "ربط حساب Instagram رسميًا", oauthNotice: "عاد تسجيل الدخول من Instagram؛ حدّث الحالة لعرض الحساب.", apiLoadError: "تعذر تحميل بيانات Instagram. حدّث الصفحة وحاول مجددًا.", accountData: "بيانات الحساب", accountName: "اسم الحساب", mediaCount: "عدد المنشورات", recentMedia: "أحدث المنشورات", noMedia: "لم تُرجع Meta منشورات لهذا الحساب.", permissionNote: "نستخدم فقط الصلاحيات التي وافقت عليها عبر Meta.", refresh: "تحديث البيانات",
-
+    profileAudit: "مراجعة الملف الشخصي", profileAuditIntro: "فحص حذر للحقول الرسمية المتاحة ومعلومات اختيارية تدخلها بنفسك. التقرير للمراجعة فقط.",
+    runProfileAudit: "أنشئ مراجعة", auditBusy: "جارٍ إعداد المراجعة…", manualContext: "معلومات اختيارية يدويًا", manualOnlyNote: "هذه المعلومات لا تأتي من Meta ولا تُحفظ في التطبيق؛ تُستخدم لإعداد هذا التقرير فقط.",
+    displayName: "اسم العرض", bio: "النبذة التعريفية", niche: "مجال الحساب", audienceInput: "الجمهور المقصود", offer: "الخدمة أو القيمة المقدمة", website: "رابط الموقع", optional: "اختياري",
+    officialFields: "حقول أعادها Instagram رسميًا", notReturned: "حقول لا تعيدها واجهة التكامل الحالية", manualSignals: "فحوص نصية بسيطة للمدخلات اليدوية", reviewPrompts: "نقاط راجعها بنفسك", noOfficialData: "لا توجد بيانات حساب رسمية متاحة الآن.",
+    profileAuditError: "تعذر إنشاء المراجعة. تأكد من تسجيل دخول المالك وحاول مرة أخرى.", notMeta: "مدخل يدوي، وليس بيانات Meta", reviewOnly: "اقتراحات للمراجعة فقط · لا يتم تعديل الملف أو حفظ المدخلات.",
   },
   en: {
     brand: "AMR AI", product: "Personal Instagram Manager", account: "Creator account", offline: "Not connected",
@@ -83,6 +89,11 @@ const words: Record<Lang, Copy> = {
     loading: "Loading…", authTitle: "Owner sign-in", authIntro: "Sign in to manage your account dashboard.", authSetup: "Set a secure owner password in the server configuration.", password: "Owner password", login: "Sign in", loginError: "Could not sign in. Check the password and server setup.", logout: "Sign out",
     connected: "Officially connected", notConfigured: "Connection setup incomplete", setupPending: "Finish Meta app and OAuth configuration on the server first.", connectOfficial: "Connect Instagram officially", oauthNotice: "Returned from Instagram sign-in; refresh to load the account.", apiLoadError: "Could not load Instagram data. Refresh and try again.", accountData: "Account data", accountName: "Account name", mediaCount: "Post count", recentMedia: "Recent posts", noMedia: "Meta returned no posts for this account.", permissionNote: "Only permissions approved through Meta are used.", refresh: "Refresh data",
 
+    profileAudit: "Profile review", profileAuditIntro: "A cautious check of available official fields plus optional details you enter. The report is review-only.",
+    runProfileAudit: "Build review", auditBusy: "Building review…", manualContext: "Optional manual context", manualOnlyNote: "These details do not come from Meta and are not saved in the app; they are used only for this report.",
+    displayName: "Display name", bio: "Bio", niche: "Account niche", audienceInput: "Intended audience", offer: "Offer or value", website: "Website", optional: "Optional",
+    officialFields: "Fields returned by Instagram", notReturned: "Fields not returned by the current integration", manualSignals: "Simple checks on manual input", reviewPrompts: "Things to review yourself", noOfficialData: "No official account data is available right now.",
+    profileAuditError: "Could not build the review. Check owner sign-in and try again.", notMeta: "Manual input, not Meta data", reviewOnly: "Review-only suggestions · nothing is edited or saved.",
   },
 };
 
@@ -109,6 +120,17 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
 
 function Metric({ icon, label, note, value = "—" }: { icon: string; label: string; note: string; value?: string }) {
   return <article className="metric-card"><span className="metric-icon"><Icon name={icon} /></span><span className="metric-label">{label}</span><strong className="metric-value">{value}</strong><span className="metric-note">{note}</span></article>;
+}
+
+function profilePrompt(key: string, basis: string, lang: Lang): string {
+  const prompts: Record<string, [string, string]> = {
+    audience_value: ["هل توضّح النبذة لمن الحساب وما الفائدة؟ راجعها يدويًا؛ لا نستنتج ذلك من البيانات الرسمية.", "Does the bio say who the account serves and what value it offers? Review manually; this is not inferred from official data."],
+    bio_action: ["هل الخطوة التالية واضحة للزائر؟ فحص CTA آلي بسيط لا يحكم على جودة العبارة.", "Is the visitor’s next step clear? A basic CTA text check cannot judge wording quality."],
+    visual_identity: ["صورة الملف والهوية البصرية غير متاحتين في بيانات التكامل الحالية؛ افحصهما بنفسك.", "Profile image and visual identity are not available from this integration; inspect them yourself."],
+  };
+  const prompt = prompts[key] ?? [key, key];
+  const suffix = basis === "needs_manual_input" ? (lang === "ar" ? " — أضف سياقًا يدويًا للمراجعة." : " — add manual context to review.") : "";
+  return `${lang === "ar" ? prompt[0] : prompt[1]}${suffix}`;
 }
 
 export default function Home() {
@@ -155,6 +177,10 @@ export default function Home() {
   const [contentPerformance, setContentPerformance] = useState<ContentPerformance | null>(null);
   const [instagramBusy, setInstagramBusy] = useState(false);
   const [instagramError, setInstagramError] = useState("");
+  const [profileInput, setProfileInput] = useState<ManualProfile>({ display_name: "", bio: "", niche: "", audience: "", offer: "", website: "" });
+  const [profileAudit, setProfileAudit] = useState<ProfileAudit | null>(null);
+  const [profileAuditBusy, setProfileAuditBusy] = useState(false);
+  const [profileAuditError, setProfileAuditError] = useState("");
   const [publishPosts, setPublishPosts] = useState<PublishPost[]>([]);
   const [postsLoading, setPostsLoading] = useState(false);
   const [postCaption, setPostCaption] = useState("");
@@ -537,6 +563,19 @@ VO AR: ${scene.voiceover_ar}`).join("\n\n");
     return <ol className="rank-list">{items.map((item) => <li key={item.id}><div className="rank-copy"><strong>{item.caption.trim() || (lang === "ar" ? "بدون كابشن" : "No caption")}</strong><small>{item.timestamp ? new Date(item.timestamp).toLocaleDateString(lang === "ar" ? "ar-EG" : "en-US") : ""} · {formatCount(item.like_count)} {t.likes} · {formatCount(item.comments_count)} {t.comments}</small></div><b>{formatCount(item.likes_and_comments)}</b>{item.permalink && <a href={item.permalink} target="_blank" rel="noreferrer" aria-label={lang === "ar" ? "فتح المنشور في Instagram" : "Open post on Instagram"}>↗</a>}</li>)}</ol>;
   }
 
+  async function runProfileAudit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setProfileAuditBusy(true); setProfileAuditError(""); setProfileAudit(null);
+    const manual = Object.fromEntries(Object.entries(profileInput).filter(([, value]) => value.trim())) as Partial<ManualProfile>;
+    try {
+      const response = await fetch(`${apiBase}/api/profile/audit`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(manual) });
+      if (response.status === 401) { setOwnerSession((current) => ({ ...current, authenticated: false })); throw new Error("not-authenticated"); }
+      if (!response.ok) throw new Error("audit-failed");
+      setProfileAudit(await response.json() as ProfileAudit);
+    } catch { setProfileAuditError(t.profileAuditError); }
+    finally { setProfileAuditBusy(false); }
+  }
+
   function changeView(next: View) {
     setView(next);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -791,12 +830,41 @@ VO AR: ${scene.voiceover_ar}`).join("\n\n");
               {instagramStatus?.connected && <div className="instagram-media-list"><h4>{t.recentMedia}</h4>{instagramMedia.length === 0 ? <p className="empty-note">{t.noMedia}</p> : instagramMedia.map((item) => <article className="instagram-media-item" key={item.id}><div><strong>{item.media_product_type || item.media_type || "Instagram"}</strong><small>{item.timestamp ? new Date(item.timestamp).toLocaleString(lang === "ar" ? "ar-EG" : "en-US") : ""}</small><p>{item.caption || ""}</p></div>{item.permalink && <a href={item.permalink} target="_blank" rel="noreferrer">{item.media_product_type === "REELS" ? "Reel" : "Instagram"} ↗</a>}</article>)}</div>}
             </div>
           </>}
+          {ownerSession.authenticated && <section className="profile-audit panel">
+            <div className="panel-heading"><div><h2>{t.profileAudit}</h2><p>{t.profileAuditIntro}</p></div><span className="status-tag">{t.reviewOnly}</span></div>
+            <p className="profile-audit-note">{t.manualOnlyNote}</p>
+            <form className="profile-audit-form" onSubmit={runProfileAudit}>
+              <h3>{t.manualContext}</h3>
+              <div className="profile-audit-fields">
+                <div className="form-field"><label htmlFor="audit-display-name">{t.displayName} · {t.optional}</label><input id="audit-display-name" maxLength={100} value={profileInput.display_name} onChange={(e) => setProfileInput({ ...profileInput, display_name: e.target.value })}/></div>
+                <div className="form-field"><label htmlFor="audit-niche">{t.niche} · {t.optional}</label><input id="audit-niche" maxLength={160} value={profileInput.niche} onChange={(e) => setProfileInput({ ...profileInput, niche: e.target.value })}/></div>
+                <div className="form-field"><label htmlFor="audit-audience">{t.audienceInput} · {t.optional}</label><input id="audit-audience" maxLength={240} value={profileInput.audience} onChange={(e) => setProfileInput({ ...profileInput, audience: e.target.value })}/></div>
+                <div className="form-field"><label htmlFor="audit-offer">{t.offer} · {t.optional}</label><input id="audit-offer" maxLength={240} value={profileInput.offer} onChange={(e) => setProfileInput({ ...profileInput, offer: e.target.value })}/></div>
+                <div className="form-field"><label htmlFor="audit-website">{t.website} · {t.optional}</label><input id="audit-website" maxLength={500} value={profileInput.website} onChange={(e) => setProfileInput({ ...profileInput, website: e.target.value })}/></div>
+                <div className="form-field profile-bio-field"><label htmlFor="audit-bio">{t.bio} · {t.optional}</label><textarea id="audit-bio" maxLength={2000} rows={4} value={profileInput.bio} onChange={(e) => setProfileInput({ ...profileInput, bio: e.target.value })}/></div>
+              </div>
+              <button className="primary-button" type="submit" disabled={profileAuditBusy}>{profileAuditBusy ? t.auditBusy : t.runProfileAudit}</button>
+              {profileAuditError && <p className="form-error" role="alert">{profileAuditError}</p>}
+            </form>
+            {profileAudit && <div className="profile-audit-results" aria-live="polite">
+              <div className="profile-audit-section"><h3>{t.officialFields}</h3>{Object.keys(profileAudit.official_fields).length ? <dl>{Object.entries(profileAudit.official_fields).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{String(value)}</dd></div>)}</dl> : <p className="empty-note">{t.noOfficialData}</p>}</div>
+              <p className="profile-audit-note">{lang === "ar" ? `حالة المصدر الرسمي: ${profileAudit.official_status}` : `Official source status: ${profileAudit.official_status}`}</p>
+              <div className="profile-audit-section"><h3>{t.notReturned}</h3><p>{profileAudit.official_fields_not_returned.join(" · ")}</p></div>
+              <div className="profile-audit-section"><h3>{t.manualSignals}</h3><p>{lang === "ar" ? "حقول مدخلة: " : "Fields provided: "}{profileAudit.manual_review.fields_received.map((key) => `${key} (${t.notMeta})`).join(" · ") || t.none}</p>
+                {profileAudit.manual_review.bio_character_count !== null && <p>{t.bio}: {profileAudit.manual_review.bio_character_count} {lang === "ar" ? "حرفًا" : "characters"} · {lang === "ar" ? "إشارة CTA بسيطة" : "Simple CTA cue"}: {profileAudit.manual_review.bio_contains_simple_cta_cue === null ? t.none : profileAudit.manual_review.bio_contains_simple_cta_cue ? (lang === "ar" ? "موجودة" : "found") : (lang === "ar" ? "غير مكتشفة" : "not detected")}</p>}
+                {profileAudit.manual_review.bio_contains_manual_niche_text !== null && <p>{lang === "ar" ? "نص المجال اليدوي يظهر في النبذة: " : "Manual niche text appears in bio: "}{profileAudit.manual_review.bio_contains_manual_niche_text ? (lang === "ar" ? "نعم" : "yes") : (lang === "ar" ? "لا" : "no")}</p>}
+                <small>{profileAudit.manual_review.heuristics_note}</small>
+              </div>
+              <div className="profile-audit-section"><h3>{t.reviewPrompts}</h3><ul>{profileAudit.review_prompts.map((prompt) => <li key={prompt.key}>{profilePrompt(prompt.key, prompt.basis, lang)}</li>)}</ul></div>
+              <p className="profile-audit-note">{t.reviewOnly}</p>
+            </div>}
+          </section>}
           <div className="settings-card panel"><div className="settings-row"><span className="settings-icon"><Icon name="spark"/></span><span><strong>{t.accountType}</strong><small>{t.permissions}</small></span><span className="setting-value">{t.creator}</span></div><div className="settings-row"><span className="settings-icon"><Icon name="lock"/></span><span><strong>{t.automation}</strong><small>{t.stopNote}</small></span><span className="setting-value">{t.manual}</span></div></div>
           <div className="info-strip"><strong>{t.security}</strong><span>{t.securityText}</span></div>
         </section>}
       </section>
 
-      <nav className="mobile-nav" aria-label={t.mobileNav}>{menu.slice(0, 4).map((item) => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => changeView(item.id)} aria-current={view === item.id ? "page" : undefined}><Icon name={item.icon} size={19}/><span>{t[item.key]}</span></button>)}</nav>
+      <nav className="mobile-nav" aria-label={t.mobileNav}>{menu.slice(0, 5).map((item) => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => changeView(item.id)} aria-current={view === item.id ? "page" : undefined}><Icon name={item.icon} size={19}/><span>{t[item.key]}</span></button>)}</nav>
     </main>
   );
 }
