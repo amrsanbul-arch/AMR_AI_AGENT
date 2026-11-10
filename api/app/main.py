@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.content import ContentRequest, ContentResponse, generate_content
+from app.reel_studio import ReelStudioRequest, ReelStudioResponse, generate_reel_studio
 from app.instagram_oauth import router as instagram_router
 from app.instagram_insights import router as instagram_insights_router
 from app.owner_auth import router as owner_auth_router
@@ -51,6 +52,12 @@ app.include_router(owner_auth_router)
 app.include_router(instagram_router)
 app.include_router(instagram_insights_router)
 app.include_router(instagram_publishing_router)
+
+
+@app.post("/api/content/reel-studio", response_model=ReelStudioResponse, tags=["content"])
+def content_reel_studio(request: ReelStudioRequest) -> ReelStudioResponse:
+    """Create a bilingual, editable shot-by-shot Reel outline using local templates."""
+    return generate_reel_studio(request)
 
 
 @app.get("/healthz", tags=["system"])

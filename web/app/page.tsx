@@ -10,6 +10,8 @@ type Copy = {
 };
 type ContentMode = "ideas" | "caption" | "reel_script";
 type ContentPiece = { title: string; hook: string; body: string; cta: string; hashtags: string[]; scenes: string[] };
+type ReelScene = { start_seconds: number; end_seconds: number; shot_ar: string; shot_en: string; screen_text_ar: string; screen_text_en: string; voiceover_ar: string; voiceover_en: string };
+type ReelBoard = { generator: "free_template"; title_ar: string; title_en: string; duration_seconds: number; concept_ar: string; concept_en: string; hook_ar: string; hook_en: string; voiceover_ar: string; voiceover_en: string; caption_ar: string; caption_en: string; cta_ar: string; cta_en: string; scenes: ReelScene[]; production_note_ar: string; production_note_en: string };
 type ContentResult = { mode: ContentMode; language: "ar" | "en"; generator: "free_template"; notice: string; pieces: ContentPiece[] };
 type OwnerSession = { configured: boolean; authenticated: boolean };
 type InstagramStatus = { status: "not_configured" | "not_connected" | "connected"; connected: boolean; username?: string };
@@ -104,6 +106,12 @@ export default function Home() {
   const [tone, setTone] = useState("friendly");
   const [contentResult, setContentResult] = useState<ContentResult | null>(null);
   const [contentError, setContentError] = useState("");
+  const [studioTab, setStudioTab] = useState<"assistant" | "reels">("reels");
+  const [reelDuration, setReelDuration] = useState<15 | 30 | 45>(30);
+  const [reelBoard, setReelBoard] = useState<ReelBoard | null>(null);
+  const [reelBusy, setReelBusy] = useState(false);
+  const [reelError, setReelError] = useState("");
+  const [reelSaved, setReelSaved] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [ownerSession, setOwnerSession] = useState<OwnerSession>({ configured: false, authenticated: false });
@@ -126,6 +134,21 @@ export default function Home() {
   const [oauthNotice, setOauthNotice] = useState("");
   const t = words[lang];
   const rtl = lang === "ar";
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem("amr-reel-studio-v1");
+      if (saved) setReelBoard(JSON.parse(saved) as ReelBoard);
+    } catch { /* Ignore stale or malformed local drafts. */ }
+  }, []);
+
+  useEffect(() => {
+    if (!reelBoard) return;
+    try {
+      window.localStorage.setItem("amr-reel-studio-v1", JSON.stringify(reelBoard));
+      setReelSaved(true);
+    } catch { setReelSaved(false); }
+  }, [reelBoard]);
 
   useEffect(() => {
     document.documentElement.lang = lang;
@@ -324,6 +347,44 @@ export default function Home() {
     }
   }
 
+  async function generateReelBoard(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setReelBusy(true); setReelError("");
+    try {
+      const response = await fetch(`${apiBase}/api/content/reel-studio`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic, audience, duration_seconds: reelDuration, tone }),
+      });
+      if (!response.ok) throw new Error("reel-studio-failed");
+      setReelBoard(await response.json() as ReelBoard);
+    } catch {
+      setReelError(lang === "ar" ? "تعذر تجهيز لوحة الـReel. تأكد أن خادم المشروع يعمل ثم أعد المحاولة." : "Could not build the Reel board. Check that the project server is running, then try again.");
+    } finally { setReelBusy(false); }
+  }
+
+  function updateReelScene(index: number, field: keyof ReelScene, value: string) {
+    setReelBoard((board) => board ? { ...board, scenes: board.scenes.map((scene, current) => current === index ? { ...scene, [field]: value } : scene) } : board);
+  }
+
+  async function copyReelBoard() {
+    if (!reelBoard) return;
+    const text = reelBoard.scenes.map((scene) => `${scene.start_seconds}–${scene.end_seconds}s
+SHOT / اللقطة: ${scene.shot_en}
+${scene.shot_ar}
+ON SCREEN / النص: ${scene.screen_text_en} | ${scene.screen_text_ar}
+VO EN: ${scene.voiceover_en}
+VO AR: ${scene.voiceover_ar}`).join("\n\n");
+    const full = `${reelBoard.title_ar} / ${reelBoard.title_en}\n\n${text}\n\nCAPTION AR\n${reelBoard.caption_ar}\n\nCAPTION EN\n${reelBoard.caption_en}`;
+    try { await navigator.clipboard.writeText(full); setReelSaved(true); }
+    catch { setReelError(lang === "ar" ? "تعذر النسخ تلقائيًا؛ استخدم زر التصدير النصي." : "Clipboard access is unavailable; use the text export instead."); }
+  }
+
+  function exportReelBoard() {
+    if (!reelBoard) return;
+    const sceneText = reelBoard.scenes.map((scene) => `SCENE ${scene.start_seconds}–${scene.end_seconds}s\nSHOT AR: ${scene.shot_ar}\nSHOT EN: ${scene.shot_en}\nON-SCREEN AR: ${scene.screen_text_ar}\nON-SCREEN EN: ${scene.screen_text_en}\nVOICEOVER AR: ${scene.voiceover_ar}\nVOICEOVER EN: ${scene.voiceover_en}`).join("\n\n");
+    const contents = `${reelBoard.title_ar} / ${reelBoard.title_en}\n${reelBoard.duration_seconds}s\n\n${sceneText}\n\nCAPTION AR\n${reelBoard.caption_ar}\n\nCAPTION EN\n${reelBoard.caption_en}\n`;
+    const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([contents], { type: "text/plain;charset=utf-8" })); link.download = "reel-storyboard-bilingual.txt"; link.click(); URL.revokeObjectURL(link.href);
+  }
+
   function insightValue(name: string): string {
     const datum = instagramInsights?.metrics?.[name];
     return datum?.available && typeof datum.value === "number"
@@ -419,7 +480,43 @@ export default function Home() {
 
         {view === "studio" && <section className="page-content">
           <div className="page-title-row"><div><p className="eyebrow">{t.stage}</p><h1>{t.contentTitle}</h1><p>{t.contentSub}</p></div><span className="status-tag">{t.studioTitle}</span></div>
-          <div className="studio-workspace panel">
+          <div className="studio-switch" role="tablist" aria-label={lang === "ar" ? "أدوات الاستوديو" : "Studio tools"}>
+            <button role="tab" aria-selected={studioTab === "reels"} className={studioTab === "reels" ? "active" : ""} onClick={() => setStudioTab("reels")} type="button">{lang === "ar" ? "استوديو Reels" : "Reels studio"}</button>
+            <button role="tab" aria-selected={studioTab === "assistant"} className={studioTab === "assistant" ? "active" : ""} onClick={() => setStudioTab("assistant")} type="button">{lang === "ar" ? "أفكار وكابشنات" : "Ideas & captions"}</button>
+          </div>
+          {studioTab === "reels" && <>
+            <div className="studio-workspace panel reel-setup">
+              <div className="studio-intro"><span className="studio-art reel-art"><Icon name="spark" size={25}/></span><div><h2>{lang === "ar" ? "خطّط Reel لقطة بلقطة" : "Plan your Reel, shot by shot"}</h2><p>{lang === "ar" ? "اكتب الفكرة، واختر المدة؛ جهّزنا لك لوحة تصوير وسكريبتًا عربيًا وإنجليزيًا قابلين للتعديل." : "Set the idea and length to get an editable shot list and Arabic + English script."}</p></div><span className="reel-free-tag">{lang === "ar" ? "محلي · مجاني" : "LOCAL · FREE"}</span></div>
+              <form className="content-form reel-form" onSubmit={generateReelBoard}>
+                <div className="form-field"><label htmlFor="reel-topic">{lang === "ar" ? "فكرة الـReel" : "Reel idea"}</label><input id="reel-topic" required minLength={2} maxLength={180} value={topic} onChange={(event) => setTopic(event.target.value)} placeholder={t.topicPlaceholder}/></div>
+                <div className="reel-form-row">
+                  <div className="form-field"><label htmlFor="reel-audience">{t.audienceLabel}</label><input id="reel-audience" maxLength={180} value={audience} onChange={(event) => setAudience(event.target.value)} placeholder={t.audiencePlaceholder}/></div>
+                  <div className="form-field"><label htmlFor="reel-tone">{t.toneLabel}</label><select id="reel-tone" value={tone} onChange={(event) => setTone(event.target.value)}><option value="friendly">{t.friendlyTone}</option><option value="professional">{t.professionalTone}</option><option value="playful">{t.playfulTone}</option><option value="educational">{t.educationalTone}</option></select></div>
+                  <div className="form-field"><label>{lang === "ar" ? "مدة الفيديو" : "Reel length"}</label><div className="duration-picker" role="group" aria-label={lang === "ar" ? "مدة الفيديو" : "Reel length"}>{([15, 30, 45] as const).map((seconds) => <button key={seconds} type="button" aria-pressed={reelDuration === seconds} className={reelDuration === seconds ? "selected" : ""} onClick={() => setReelDuration(seconds)}>{seconds}s</button>)}</div></div>
+                </div>
+                <button className="primary-button studio-submit" type="submit" disabled={reelBusy || topic.trim().length < 2}><span>{reelBusy ? (lang === "ar" ? "جارٍ إعداد اللوحة…" : "Building your board…") : (lang === "ar" ? "جهّز لوحة التصوير" : "Build shot list")}</span><Icon name="spark" size={17}/></button>
+                {reelError && <p className="form-error" role="alert">{reelError}</p>}
+              </form>
+            </div>
+            {reelBoard && <section className="reel-board" aria-live="polite">
+              <div className="reel-board-head"><div><p className="eyebrow">{lang === "ar" ? "لوحة التصوير" : "YOUR STORYBOARD"}</p><h2>{lang === "ar" ? reelBoard.title_ar : reelBoard.title_en}</h2><p>{lang === "ar" ? reelBoard.concept_ar : reelBoard.concept_en}</p></div><span className="duration-badge">{reelBoard.duration_seconds}s · {lang === "ar" ? "٤ مشاهد" : "4 scenes"}</span></div>
+              <div className="reel-board-toolbar"><span className="autosave-note"><i/> {lang === "ar" ? "يُحفظ تلقائيًا على هذا الجهاز" : "Auto-saved on this device"}</span><div><button type="button" className="secondary-button" onClick={() => void copyReelBoard()}>{lang === "ar" ? "نسخ اللوحة" : "Copy board"}</button><button type="button" className="secondary-button" onClick={exportReelBoard}>{lang === "ar" ? "تصدير TXT" : "Export TXT"}</button></div></div>
+              <div className="reel-scene-list">{reelBoard.scenes.map((scene, index) => <article className="reel-scene panel" key={`${index}-${scene.start_seconds}`}>
+                <div className="scene-topline"><span className="scene-number">{String(index + 1).padStart(2, "0")}</span><div><strong>{lang === "ar" ? `المشهد ${index + 1}` : `Scene ${index + 1}`}</strong><span>{String(scene.start_seconds).padStart(2, "0")}s — {String(scene.end_seconds).padStart(2, "0")}s</span></div><span className="scene-duration">{scene.end_seconds - scene.start_seconds}s</span></div>
+                <div className="scene-edit-grid">
+                  <label className="scene-edit"><span>🎥 {lang === "ar" ? "اللقطة · عربي" : "Shot · Arabic"}</span><textarea rows={3} value={scene.shot_ar} onChange={(event) => updateReelScene(index, "shot_ar", event.target.value)}/></label>
+                  <label className="scene-edit" dir="ltr"><span>🎥 Shot · English</span><textarea rows={3} value={scene.shot_en} onChange={(event) => updateReelScene(index, "shot_en", event.target.value)}/></label>
+                  <label className="scene-edit"><span>▤ {lang === "ar" ? "نص الشاشة · عربي" : "On-screen text · Arabic"}</span><input value={scene.screen_text_ar} onChange={(event) => updateReelScene(index, "screen_text_ar", event.target.value)}/></label>
+                  <label className="scene-edit" dir="ltr"><span>▤ On-screen text · English</span><input value={scene.screen_text_en} onChange={(event) => updateReelScene(index, "screen_text_en", event.target.value)}/></label>
+                  <label className="scene-edit"><span>🎙 {lang === "ar" ? "التعليق الصوتي · عربي" : "Voiceover · Arabic"}</span><textarea rows={3} value={scene.voiceover_ar} onChange={(event) => updateReelScene(index, "voiceover_ar", event.target.value)}/></label>
+                  <label className="scene-edit" dir="ltr"><span>🎙 Voiceover · English</span><textarea rows={3} value={scene.voiceover_en} onChange={(event) => updateReelScene(index, "voiceover_en", event.target.value)}/></label>
+                </div>
+              </article>)}</div>
+              <div className="reel-captions"><label className="scene-edit"><span>{lang === "ar" ? "الكابشن · عربي" : "Caption · Arabic"}<small>{reelBoard.caption_ar.length}/2,200</small></span><textarea rows={4} maxLength={2200} value={reelBoard.caption_ar} onChange={(event) => setReelBoard((board) => board ? { ...board, caption_ar: event.target.value } : board)}/></label><label className="scene-edit" dir="ltr"><span>Caption · English<small>{reelBoard.caption_en.length}/2,200</small></span><textarea rows={4} maxLength={2200} value={reelBoard.caption_en} onChange={(event) => setReelBoard((board) => board ? { ...board, caption_en: event.target.value } : board)}/></label></div>
+              <p className="reel-note">{lang === "ar" ? reelBoard.production_note_ar : reelBoard.production_note_en}</p>
+            </section>}
+          </>}
+          {studioTab === "assistant" && <div className="studio-workspace panel">
             <div className="studio-intro"><span className="studio-art"><Icon name="spark" size={25}/></span><div><h2>{t.studioTitle}</h2><p>{t.studioIntro}</p></div></div>
             <form className="content-form" onSubmit={generateContent}>
               <div className="form-field"><label htmlFor="topic">{t.topicLabel}</label><input id="topic" required minLength={2} maxLength={180} value={topic} onChange={(e) => setTopic(e.target.value)} placeholder={t.topicPlaceholder}/></div>
@@ -431,9 +528,9 @@ export default function Home() {
               <button className="primary-button studio-submit" type="submit" disabled={generating}><span>{generating ? t.generating : t.generate}</span><Icon name="spark" size={17}/></button>
               {contentError && <p className="form-error" role="alert">{contentError}</p>}
             </form>
-          </div>
-          {contentResult && <section className="generated-results" aria-live="polite"><div className="results-heading"><h2>{t.generated}</h2><span className="status-tag">{contentResult.generator === "free_template" ? t.generatorLocal : ""}</span></div><p className="result-notice">{contentResult.notice}</p><div className="result-grid">{contentResult.pieces.map((piece, index) => <article className="result-card panel" key={`${piece.title}-${index}`}><p className="eyebrow">{contentResult.mode === "ideas" ? `${t.ideasMode} ${index + 1}` : t.generated}</p><h3>{piece.title}</h3><div className="result-block"><strong>{t.hookLabel}</strong><p>{piece.hook}</p></div><div className="result-block"><strong>{t.bodyLabel}</strong><p className="result-body">{piece.body}</p></div>{piece.scenes.length > 0 && <div className="result-block"><strong>{t.scenesLabel}</strong><ol>{piece.scenes.map((scene) => <li key={scene}>{scene}</li>)}</ol></div>}<div className="result-block"><strong>{t.ctaLabel}</strong><p>{piece.cta}</p></div><div className="result-block"><strong>{t.hashtagsLabel}</strong><p className="hashtags">{piece.hashtags.join(" ")}</p></div></article>)}</div></section>}
-          <div className="info-strip"><strong>{t.approvalsTitle}</strong><span>{t.approvalsSub}</span></div>
+          </div>}
+          {studioTab === "assistant" && contentResult && <section className="generated-results" aria-live="polite"><div className="results-heading"><h2>{t.generated}</h2><span className="status-tag">{contentResult.generator === "free_template" ? t.generatorLocal : ""}</span></div><p className="result-notice">{contentResult.notice}</p><div className="result-grid">{contentResult.pieces.map((piece, index) => <article className="result-card panel" key={`${piece.title}-${index}`}><p className="eyebrow">{contentResult.mode === "ideas" ? `${t.ideasMode} ${index + 1}` : t.generated}</p><h3>{piece.title}</h3><div className="result-block"><strong>{t.hookLabel}</strong><p>{piece.hook}</p></div><div className="result-block"><strong>{t.bodyLabel}</strong><p className="result-body">{piece.body}</p></div>{piece.scenes.length > 0 && <div className="result-block"><strong>{t.scenesLabel}</strong><ol>{piece.scenes.map((scene) => <li key={scene}>{scene}</li>)}</ol></div>}<div className="result-block"><strong>{t.ctaLabel}</strong><p>{piece.cta}</p></div><div className="result-block"><strong>{t.hashtagsLabel}</strong><p className="hashtags">{piece.hashtags.join(" ")}</p></div></article>)}</div></section>}
+          {studioTab === "assistant" && <div className="info-strip"><strong>{t.approvalsTitle}</strong><span>{t.approvalsSub}</span></div>}
         </section>}
 
         {view === "calendar" && <section className="page-content">
