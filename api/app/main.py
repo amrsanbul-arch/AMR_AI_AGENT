@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.content import ContentRequest, ContentResponse, generate_content
 from app.instagram_oauth import router as instagram_router
+from app.owner_auth import router as owner_auth_router
 
 app = FastAPI(
     title="AMR AI – Personal Instagram Manager",
@@ -22,10 +23,11 @@ if "WEB_ORIGIN" not in os.environ:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=web_origins,
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type"],
 )
+app.include_router(owner_auth_router)
 app.include_router(instagram_router)
 
 
