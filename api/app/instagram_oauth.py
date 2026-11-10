@@ -26,11 +26,22 @@ CALLBACK_PATH = "/api/instagram/callback"
 AUTH_URL = "https://www.instagram.com/oauth/authorize"
 SHORT_TOKEN_URL = "https://api.instagram.com/oauth/access_token"
 LONG_TOKEN_URL = "https://graph.instagram.com/access_token"
-PROFILE_URL = "https://graph.instagram.com/me"
-MEDIA_URL = "https://graph.instagram.com"
+GRAPH_ROOT = "https://graph.instagram.com"
+DEFAULT_GRAPH_VERSION = "v27.0"
+PROFILE_URL = f"{GRAPH_ROOT}/{DEFAULT_GRAPH_VERSION}/me"  # test fixture / documented default
+
+def _graph_version() -> str:
+    import re
+    version = os.getenv("META_GRAPH_API_VERSION", DEFAULT_GRAPH_VERSION).strip()
+    if not re.fullmatch(r"v\d+\.0", version):
+        raise HTTPException(status_code=503, detail="Instagram Graph API version is invalid.")
+    return version
+
+def _graph_url(path: str) -> str:
+    return f"{GRAPH_ROOT}/{_graph_version()}/{path.lstrip(chr(47))}"
 PROFILE_FIELDS = "user_id,username,account_type,media_count"
 MEDIA_FIELDS = "id,caption,media_type,media_product_type,media_url,permalink,timestamp,thumbnail_url,like_count,comments_count"
-REQUIRED_SCOPE = "instagram_business_basic"
+REQUIRED_SCOPES = ("instagram_business_basic", "instagram_business_manage_insights")
 
 
 def _frontend_return_url(result: str) -> str:
@@ -158,7 +169,7 @@ def instagram_connect():
     state = secrets.token_urlsafe(32)
     query = urlencode({
         "client_id": settings.app_id, "redirect_uri": settings.redirect_uri,
-        "response_type": "code", "scope": REQUIRED_SCOPE, "state": state,
+        "response_type": "code", "scope": ",".join(REQUIRED_SCOPES), "state": state,
         "enable_fb_login": "0", "force_authentication": "1",
     })
     redirect = RedirectResponse(f"{AUTH_URL}?{query}", status_code=302)
@@ -196,7 +207,7 @@ def instagram_callback(request: Request, code: str = "", state: str = "", error:
             long_token = long_lived.get("access_token")
             if not isinstance(long_token, str) or not long_token:
                 raise HTTPException(status_code=502, detail="Instagram did not return a long-lived token.")
-            profile = _request_json(client, "GET", PROFILE_URL, params={
+            profile = _request_json(client, "GET", _graph_url("me"), params={
                 "fields": PROFILE_FIELDS, "access_token": long_token,
             })
         user_id, username = profile.get("user_id"), profile.get("username")
@@ -250,7 +261,7 @@ def instagram_account() -> dict:
     if not settings.configured():
         raise HTTPException(status_code=503, detail="Instagram API is not configured.")
     token, stored = _stored_access_token(settings)
-    payload = _graph_get(PROFILE_URL, token, params={"fields": PROFILE_FIELDS})
+    payload = _graph_get(_graph_url("me"), token, params={"fields": PROFILE_FIELDS})
     user_id = payload.get("user_id")
     username = payload.get("username")
     if str(user_id) != str(stored["user_id"]) or not isinstance(username, str):
@@ -276,7 +287,7 @@ def instagram_media(
     params = {"fields": MEDIA_FIELDS, "limit": limit}
     if after:
         params["after"] = after
-    payload = _graph_get(f"{MEDIA_URL}/{safe_user_id}/media", token, params=params)
+    payload = _graph_get(_graph_url(f"{safe_user_id}/media"), token, params=params)
     entries = payload.get("data", [])
     if not isinstance(entries, list):
         raise HTTPException(status_code=502, detail="Instagram returned an invalid media list.")

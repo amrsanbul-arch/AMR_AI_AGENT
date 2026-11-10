@@ -15,6 +15,9 @@ type OwnerSession = { configured: boolean; authenticated: boolean };
 type InstagramStatus = { status: "not_configured" | "not_connected" | "connected"; connected: boolean; username?: string };
 type InstagramAccount = { username: string; account_type?: string | null; media_count?: number | null };
 type InstagramMedia = { id: string; caption?: string; media_type?: string; media_product_type?: string; permalink?: string; timestamp?: string; media_url?: string; thumbnail_url?: string; like_count?: number; comments_count?: number };
+type InsightPoint = { value: number; end_time?: string };
+type InsightDatum = { available: boolean; value: number | null; series: InsightPoint[]; reason?: string | null };
+type InstagramInsights = { source: "instagram_graph_api"; range_days: number; since: number; until: number; fetched_at: number; metrics: Record<string, InsightDatum> };
 
 const words: Record<Lang, Copy> = {
   ar: {
@@ -27,10 +30,10 @@ const words: Record<Lang, Copy> = {
     contentTitle: "مساحة المحتوى", contentSub: "الأفكار والمسودات والمحتوى الجاهز للمراجعة.", openStudio: "افتح استوديو المحتوى", emptyDrafts: "مساحة المسودات جاهزة لك", emptyDraftsSub: "أنشئ أفكارًا وكابشنات وسيناريوهات قابلة للتعديل من استوديو المحتوى.",
     performance: "أداء المحتوى", performanceSub: "ستظهر المقارنات والتوصيات بعد وصول بيانات Insights.", topPosts: "أفضل المنشورات", topReels: "أفضل Reels", noData: "لا توجد بيانات لعرضها بعد",
     scheduleTitle: "تقويم النشر", scheduleSub: "هنا ستراجع المسودات والمواعيد قبل النشر.", approvalsTitle: "مراجعتك أولًا", approvalsSub: "المحتوى لن يُنشر قبل تفعيل صلاحية النشر وموافقتك حسب الوضع المختار.",
-    settingsTitle: "إعدادات الحساب", settingsSub: "إعداد الاتصال واللغة وطريقة الموافقة.", connection: "اتصال Instagram", officialOnly: "تكامل رسمي فقط", accountType: "نوع الحساب", creator: "Creator · منشئ محتوى", permissions: "الصلاحيات", notSet: "لم يتم الربط بعد",
+    settingsTitle: "إعدادات الحساب", settingsSub: "إعداد الاتصال واللغة وطريقة الموافقة.", connection: "اتصال Instagram", officialOnly: "تكامل رسمي فقط", accountType: "نوع الحساب", creator: "Creator · منشئ محتوى", permissions: "الصلاحيات", insightsTitle: "تحليلات Meta الرسمية", insightsSub: "الأرقام تأتي من Instagram Insights؛ قد لا تتوفر بعض المقاييس أو تتأخر.", metricUnavailable: "لم تُرجع Meta هذه القيمة", officialSource: "مصدر: Instagram Graph API", latest: "أحدث قيمة ضمن الفترة", noInsights: "لا توجد بيانات Insights متاحة لهذه الفترة.", notSet: "لم يتم الربط بعد",
     manual: "يدوي", approvalMode: "موافقة قبل النشر", automation: "أتمتة النشر", stop: "إيقاف الأتمتة", stopNote: "متوقف حتى يتم إعداد الربط الرسمي.",
     mobileNav: "التنقل", coming: "قيد التجهيز", stage: "المرحلة 2 · لوحة التحكم", zeroData: "لا بيانات تجريبية", zeroDataSub: "كل الأرقام تبقى فارغة حتى نقرأها من مصدر حقيقي.",
-    today: "اليوم", week: "هذا الأسبوع", month: "هذا الشهر", updated: "آخر تحديث", none: "—", apiStatus: "حالة الربط", noConnection: "لا يوجد اتصال بإنستجرام", onlyOfficial: "لن نستخدم تسجيل دخول أو كشطًا غير رسميًا.",
+    today: "آخر 24 ساعة", week: "آخر 7 أيام", month: "آخر 30 يومًا", updated: "آخر تحديث", none: "—", apiStatus: "حالة الربط", noConnection: "لا يوجد اتصال بإنستجرام", onlyOfficial: "لن نستخدم تسجيل دخول أو كشطًا غير رسميًا.",
     startContent: "ابدأ بتجهيز محتواك", startContentSub: "ستتمكن من بناء أفكار وسكربتات ومراجعتها قبل النشر.", security: "الأمان أولًا", securityText: "لا كلمات مرور محفوظة · صلاحيات رسمية · موافقة قبل النشر", daily: "نظرة يومية", contentReady: "ما يحتاج انتباهك", noPending: "لا توجد عناصر للمراجعة بعد", buildNext: "استوديو المحتوى المحلي المجاني جاهز للمسودات؛ لا يوجد نشر أو ربط Instagram بعد.",
     studioTitle: "مساعد المحتوى المجاني", studioIntro: "اكتب موضوعك واختر نوع المسودة. النتائج محلية قابلة للتعديل، ولا تُنشر تلقائيًا.",
     topicLabel: "موضوع المحتوى", topicPlaceholder: "مثال: تصوير الطعام للمطاعم", audienceLabel: "الجمهور (اختياري)", audiencePlaceholder: "مثال: أصحاب المطاعم الصغيرة",
@@ -48,10 +51,10 @@ const words: Record<Lang, Copy> = {
     contentTitle: "Content workspace", contentSub: "Ideas, drafts, and content ready for review.", openStudio: "Open content studio", emptyDrafts: "Your drafts space is ready", emptyDraftsSub: "Create editable ideas, captions, and scripts in the content studio.",
     performance: "Content performance", performanceSub: "Comparisons and recommendations will appear after Insights data is available.", topPosts: "Top posts", topReels: "Top Reels", noData: "No data to show yet",
     scheduleTitle: "Publishing calendar", scheduleSub: "Review drafts and timing here before publishing.", approvalsTitle: "Your review comes first", approvalsSub: "Content will not publish until publishing permission and your selected approval mode are in place.",
-    settingsTitle: "Account settings", settingsSub: "Connection, language, and approval preferences.", connection: "Instagram connection", officialOnly: "Official integration only", accountType: "Account type", creator: "Creator", permissions: "Permissions", notSet: "Not connected",
+    settingsTitle: "Account settings", settingsSub: "Connection, language, and approval preferences.", connection: "Instagram connection", officialOnly: "Official integration only", accountType: "Account type", creator: "Creator", permissions: "Permissions", insightsTitle: "Official Meta insights", insightsSub: "Values come from Instagram Insights; some metrics may be unavailable or delayed.", metricUnavailable: "Meta did not return this metric", officialSource: "Source: Instagram Graph API", latest: "Latest value in range", noInsights: "No Insights data is available for this period.", notSet: "Not connected",
     manual: "Manual", approvalMode: "Approval before publishing", automation: "Publishing automation", stop: "Stop automation", stopNote: "Inactive until official connection is configured.",
     mobileNav: "Navigation", coming: "Coming soon", stage: "Stage 2 · Dashboard", zeroData: "No sample data", zeroDataSub: "Metrics stay empty until read from a real source.",
-    today: "Today", week: "This week", month: "This month", updated: "Last updated", none: "—", apiStatus: "Connection status", noConnection: "No Instagram connection", onlyOfficial: "No unofficial login or scraping will be used.",
+    today: "Last 24 hours", week: "Last 7 days", month: "Last 30 days", updated: "Last updated", none: "—", apiStatus: "Connection status", noConnection: "No Instagram connection", onlyOfficial: "No unofficial login or scraping will be used.",
     startContent: "Start preparing content", startContentSub: "Build ideas and scripts, then review them before publishing.", security: "Security first", securityText: "No saved passwords · Official permissions · Review before publishing", daily: "Daily overview", contentReady: "Needs your attention", noPending: "Nothing to review yet", buildNext: "The free local content studio is ready for drafts; Instagram is not connected and nothing publishes.",
     studioTitle: "Free content assistant", studioIntro: "Add a topic and choose a draft type. Results are local and editable; nothing is published.",
     topicLabel: "Content topic", topicPlaceholder: "e.g. food photography for restaurants", audienceLabel: "Audience (optional)", audiencePlaceholder: "e.g. small restaurant owners",
@@ -82,8 +85,8 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{paths[name] ?? paths.grid}</svg>;
 }
 
-function Metric({ icon, label, note }: { icon: string; label: string; note: string }) {
-  return <article className="metric-card"><span className="metric-icon"><Icon name={icon} /></span><span className="metric-label">{label}</span><strong className="metric-value">—</strong><span className="metric-note">{note}</span></article>;
+function Metric({ icon, label, note, value = "—" }: { icon: string; label: string; note: string; value?: string }) {
+  return <article className="metric-card"><span className="metric-icon"><Icon name={icon} /></span><span className="metric-label">{label}</span><strong className="metric-value">{value}</strong><span className="metric-note">{note}</span></article>;
 }
 
 export default function Home() {
@@ -105,6 +108,7 @@ export default function Home() {
   const [instagramStatus, setInstagramStatus] = useState<InstagramStatus | null>(null);
   const [instagramAccount, setInstagramAccount] = useState<InstagramAccount | null>(null);
   const [instagramMedia, setInstagramMedia] = useState<InstagramMedia[]>([]);
+  const [instagramInsights, setInstagramInsights] = useState<InstagramInsights | null>(null);
   const [instagramBusy, setInstagramBusy] = useState(false);
   const [instagramError, setInstagramError] = useState("");
   const [oauthNotice, setOauthNotice] = useState("");
@@ -133,17 +137,22 @@ export default function Home() {
       if (!status.connected) {
         setInstagramAccount(null);
         setInstagramMedia([]);
+        setInstagramInsights(null);
         return;
       }
-      const [accountResponse, mediaResponse] = await Promise.all([
+      const rangeDays = range === "today" ? 1 : range === "week" ? 7 : 30;
+      const [accountResponse, mediaResponse, insightsResponse] = await Promise.all([
         fetch(`${apiBase}/api/instagram/account`, { credentials: "include", cache: "no-store" }),
         fetch(`${apiBase}/api/instagram/media?limit=12`, { credentials: "include", cache: "no-store" }),
+        fetch(`${apiBase}/api/instagram/insights?days=${rangeDays}`, { credentials: "include", cache: "no-store" }),
       ]);
-      if (!accountResponse.ok || !mediaResponse.ok) throw new Error("data-failed");
+      if (!accountResponse.ok || !mediaResponse.ok || !insightsResponse.ok) throw new Error("data-failed");
       const account = await accountResponse.json() as InstagramAccount;
       const media = await mediaResponse.json() as { data?: InstagramMedia[] };
+      const insights = await insightsResponse.json() as InstagramInsights;
       setInstagramAccount(account);
       setInstagramMedia(Array.isArray(media.data) ? media.data : []);
+      setInstagramInsights(insights);
     } catch (error) {
       if (!(error instanceof Error && error.message === "not-authenticated")) setInstagramError(t.apiLoadError);
     } finally {
@@ -168,7 +177,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!authLoading && ownerSession.authenticated) void refreshInstagram();
-  }, [authLoading, ownerSession.authenticated]);
+  }, [authLoading, ownerSession.authenticated, range]);
 
   async function loginOwner(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -223,6 +232,17 @@ export default function Home() {
     } finally {
       setGenerating(false);
     }
+  }
+
+  function insightValue(name: string): string {
+    const datum = instagramInsights?.metrics?.[name];
+    return datum?.available && typeof datum.value === "number"
+      ? new Intl.NumberFormat(lang === "ar" ? "ar-EG" : "en-US", { maximumFractionDigits: 0 }).format(datum.value)
+      : "—";
+  }
+
+  function insightNote(name: string): string {
+    return instagramInsights?.metrics?.[name]?.available ? t.latest : t.metricUnavailable;
   }
 
   function changeView(next: View) {
@@ -284,7 +304,7 @@ export default function Home() {
 
           <div className="section-heading"><div><p className="eyebrow">{t.daily}</p><h2>{t.overviewTitle}</h2></div><div className="range-control" role="group" aria-label={t.overviewTitle}>{(["today", "week", "month"] as const).map((period) => <button key={period} className={range === period ? "selected" : ""} aria-pressed={range === period} onClick={() => setRange(period)}>{t[period]}</button>)}</div></div>
           <section className="metrics-grid" aria-label={t.overviewTitle}>
-            <Metric icon="grid" label={t.followers} note={t.unavailable}/><Metric icon="chart" label={t.reach} note={t.unavailable}/><Metric icon="spark" label={t.engagement} note={t.unavailable}/><Metric icon="chart" label={t.views} note={t.unavailable}/>
+            <Metric icon="grid" label={t.followers} note={instagramInsights ? insightNote("follower_count") : t.unavailable} value={instagramInsights ? insightValue("follower_count") : "—"}/><Metric icon="chart" label={t.reach} note={instagramInsights ? insightNote("reach") : t.unavailable} value={instagramInsights ? insightValue("reach") : "—"}/><Metric icon="spark" label={t.engagement} note={instagramInsights ? insightNote("total_interactions") : t.unavailable} value={instagramInsights ? insightValue("total_interactions") : "—"}/><Metric icon="chart" label={t.views} note={instagramInsights ? insightNote("views") : t.unavailable} value={instagramInsights ? insightValue("views") : "—"}/>
           </section>
 
           <section className="lower-grid">
@@ -333,9 +353,13 @@ export default function Home() {
         </section>}
 
         {view === "insights" && <section className="page-content">
-          <div className="page-title-row"><div><p className="eyebrow">{t.stage}</p><h1>{t.performance}</h1><p>{t.performanceSub}</p></div><span className="status-tag">{t.offline}</span></div>
-          <section className="metrics-grid insights-metrics"><Metric icon="grid" label={t.followers} note={t.unavailable}/><Metric icon="chart" label={t.reach} note={t.unavailable}/><Metric icon="spark" label={t.engagement} note={t.unavailable}/><Metric icon="chart" label={t.views} note={t.unavailable}/></section>
-          <div className="lower-grid"><article className="panel rank-panel"><h3>{t.topPosts}</h3><div className="rank-empty"><span className="empty-badge"><Icon name="grid"/></span><strong>{t.noData}</strong></div></article><article className="panel rank-panel"><h3>{t.topReels}</h3><div className="rank-empty"><span className="empty-badge"><Icon name="chart"/></span><strong>{t.noData}</strong></div></article></div>
+          <div className="page-title-row"><div><p className="eyebrow">{t.insightsTitle}</p><h1>{t.performance}</h1><p>{t.insightsSub}</p></div><span className="status-tag">{instagramStatus?.connected ? t.connected : t.offline}</span></div>
+          <div className="section-heading"><div><p className="eyebrow">{t.officialSource}</p><h2>{t.insightsTitle}</h2></div><div className="range-control" role="group" aria-label={t.performance}>{(["today", "week", "month"] as const).map((period) => <button key={period} className={range === period ? "selected" : ""} aria-pressed={range === period} onClick={() => setRange(period)}>{t[period]}</button>)}</div></div>
+          <section className="metrics-grid insights-metrics"><Metric icon="grid" label={t.followers} note={instagramInsights ? insightNote("follower_count") : t.unavailable} value={instagramInsights ? insightValue("follower_count") : "—"}/><Metric icon="chart" label={t.reach} note={instagramInsights ? insightNote("reach") : t.unavailable} value={instagramInsights ? insightValue("reach") : "—"}/><Metric icon="spark" label={t.engagement} note={instagramInsights ? insightNote("total_interactions") : t.unavailable} value={instagramInsights ? insightValue("total_interactions") : "—"}/><Metric icon="chart" label={t.views} note={instagramInsights ? insightNote("views") : t.unavailable} value={instagramInsights ? insightValue("views") : "—"}/></section>
+          {!instagramStatus?.connected && <div className="info-strip"><strong>{t.noConnection}</strong><span>{t.unavailable}</span></div>}
+          {instagramStatus?.connected && !instagramInsights && <div className="empty-note">{t.noInsights}</div>}
+          {instagramInsights && <article className="panel insights-detail"><div className="panel-heading"><div><h3>{t.reach}</h3><p>{instagramInsights.range_days} {lang === "ar" ? "يومًا" : "days"} · {t.latest}</p></div><span className="status-tag">{t.officialSource}</span></div>{(() => { const points = instagramInsights.metrics.reach?.series ?? []; const max = Math.max(1, ...points.map((point) => point.value)); return points.length ? <div className="insight-bars" role="img" aria-label={`${t.reach}: ${points.map((point) => point.value).join(", ")}`}>{points.map((point, index) => <div className="insight-bar-wrap" key={`${point.end_time ?? "point"}-${index}`} title={`${point.end_time ?? ""}: ${point.value}`}><span className="insight-bar" style={{ height: `${Math.max(4, (point.value / max) * 100)}%` }}/><small>{point.end_time ? new Date(point.end_time).toLocaleDateString(lang === "ar" ? "ar-EG" : "en-US", { day: "numeric", month: "short" }) : ""}</small></div>)}</div> : <div className="empty-note">{t.noInsights}</div>; })()}</article>}
+          <div className="lower-grid"><article className="panel rank-panel"><h3>{t.topPosts}</h3><div className="rank-empty"><span className="empty-badge"><Icon name="grid"/></span><strong>{instagramStatus?.connected ? t.noInsights : t.noData}</strong></div></article><article className="panel rank-panel"><h3>{t.topReels}</h3><div className="rank-empty"><span className="empty-badge"><Icon name="chart"/></span><strong>{instagramStatus?.connected ? t.noInsights : t.noData}</strong></div></article></div>
         </section>}
 
         {view === "settings" && <section className="page-content">

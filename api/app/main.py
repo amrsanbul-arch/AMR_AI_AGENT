@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.content import ContentRequest, ContentResponse, generate_content
 from app.instagram_oauth import router as instagram_router
+from app.instagram_insights import router as instagram_insights_router
 from app.owner_auth import router as owner_auth_router
 
 app = FastAPI(
@@ -29,6 +30,7 @@ app.add_middleware(
 )
 app.include_router(owner_auth_router)
 app.include_router(instagram_router)
+app.include_router(instagram_insights_router)
 
 
 @app.get("/healthz", tags=["system"])

@@ -2,6 +2,7 @@ import sqlite3
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from fastapi import HTTPException
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
@@ -55,6 +56,7 @@ def test_instagram_routes_require_owner_session(monkeypatch, tmp_path):
     endpoints = [
         ("GET", "/api/instagram/status"), ("GET", "/api/instagram/connect"),
         ("GET", "/api/instagram/account"), ("GET", "/api/instagram/media"),
+        ("GET", "/api/instagram/insights"), ("GET", "/api/instagram/media/123/insights"),
         ("GET", "/api/instagram/callback?code=x&state=y"), ("POST", "/api/instagram/disconnect"),
     ]
     with TestClient(app) as client:
@@ -116,7 +118,7 @@ def test_connect_builds_official_minimal_scope_and_httponly_state(monkeypatch, t
         query = parse_qs(url.query)
         assert url.scheme == "https" and url.netloc == "www.instagram.com"
         assert url.path == "/oauth/authorize"
-        assert query["scope"] == ["instagram_business_basic"]
+        assert query["scope"] == ["instagram_business_basic,instagram_business_manage_insights"]
         assert query["redirect_uri"] == ["http://localhost:8000/api/instagram/callback"]
         assert response.cookies[instagram.STATE_COOKIE] == query["state"][0]
         cookie = response.headers["set-cookie"].lower()
@@ -252,7 +254,7 @@ def test_media_read_limits_fields_and_returns_cursor_not_next_url(monkeypatch, t
         assert response.status_code == 200
         assert response.json() == {"data": [{"id": "m1", "caption": "hello", "media_type": "VIDEO", "permalink": "https://www.instagram.com/p/x/", "timestamp": "2026-11-01T12:00:00+0000"}], "paging": {"next_after": "cursor-next"}}
     method, url, kwargs = calls[0]
-    assert method == "GET" and url == "https://graph.instagram.com/12345/media"
+    assert method == "GET" and url == "https://graph.instagram.com/v27.0/12345/media"
     assert kwargs["params"]["limit"] == 12 and kwargs["params"]["after"] == "cursor-prev"
     assert kwargs["params"]["fields"] == instagram.MEDIA_FIELDS
     assert "secret" not in response.text and "access_token" not in response.text
@@ -299,3 +301,93 @@ def test_cors_allows_credentials_only_for_configured_web_origin(monkeypatch):
             "Origin": "https://evil.example", "Access-Control-Request-Method": "GET",
         })
         assert "access-control-allow-origin" not in denied.headers
+
+
+def test_account_insights_uses_official_versioned_graph_and_preserves_missing_metrics(monkeypatch, tmp_path):
+    _save_fake_connection(monkeypatch, tmp_path)
+    import app.instagram_insights as insights
+    calls = []
+
+    def fake_graph(url, token, *, params):
+        calls.append((url, token, params))
+        metric = params["metric"]
+        if metric == "accounts_engaged":
+            raise HTTPException(status_code=400, detail="unsupported for this account")
+        if metric == "total_interactions":
+            return {"data": []}
+        if metric == "follower_count":
+            return {"data": [{"name": metric, "values": [{"value": 42, "end_time": "2026-11-10T00:00:00+0000"}]}]}
+        return {"data": [{"name": metric, "values": [
+            {"value": 5, "end_time": "2026-11-09T00:00:00+0000"},
+            {"value": 8, "end_time": "2026-11-10T00:00:00+0000"},
+        ]}]}
+
+    monkeypatch.setattr(insights, "_graph_get", fake_graph)
+    with TestClient(app) as client:
+        login(client)
+        response = client.get("/api/instagram/insights?days=7")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["source"] == "instagram_graph_api" and body["range_days"] == 7
+        assert body["metrics"]["reach"]["value"] == 8
+        assert body["metrics"]["reach"]["series"][-1]["value"] == 8
+        assert body["metrics"]["accounts_engaged"] == {
+            "available": False, "value": None, "series": [], "reason": "api_error", "status_code": 400
+        }
+        assert body["metrics"]["total_interactions"]["reason"] == "not_returned"
+    assert len(calls) == 5
+    assert all(url.startswith("https://graph.instagram.com/v27.0/12345/insights") for url, _, _ in calls)
+    assert all(token == "mock-graph-token" for _, token, _ in calls)
+    assert all("access_token" not in params for _, _, params in calls)
+    assert all(params.get("period") == "day" and params.get("metric_type") == "time_series" for _, _, params in calls)
+    assert calls[0][2]["since"] < calls[0][2]["until"]
+
+
+def test_account_insights_validates_range_and_requires_connection(monkeypatch, tmp_path):
+    configured(monkeypatch, tmp_path)
+    with TestClient(app) as client:
+        login(client)
+        assert client.get("/api/instagram/insights?days=91").status_code == 422
+        assert client.get("/api/instagram/insights?days=7").status_code == 409
+
+
+def test_media_insights_validates_id_and_returns_only_allowlisted_metrics(monkeypatch, tmp_path):
+    _save_fake_connection(monkeypatch, tmp_path)
+    import app.instagram_insights as insights
+    calls = []
+
+    def fake_graph(url, token, *, params):
+        calls.append((url, token, params))
+        if params["metric"] == "reach":
+            raise HTTPException(status_code=400, detail="unsupported for this media type")
+        return {"data": [{"name": params["metric"], "total_value": {"value": 900}},
+                         {"name": "unexpected_secret", "total_value": {"value": 1}}]}
+
+    monkeypatch.setattr(insights, "_graph_get", fake_graph)
+    with TestClient(app) as client:
+        login(client)
+        assert client.get("/api/instagram/media/nope/insights").status_code == 422
+        response = client.get("/api/instagram/media/987654/insights")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["source"] == "instagram_graph_api"
+        assert body["metrics"]["views"]["value"] == 900
+        assert "unexpected_secret" not in response.text
+        assert body["metrics"]["reach"] == {"available": False, "value": None, "reason": "api_error", "status_code": 400}
+    assert all(url == "https://graph.instagram.com/v27.0/987654/insights" for url, _, _ in calls)
+    assert [params["metric"] for _, _, params in calls] == list(insights.MEDIA_METRICS)
+    assert all(token == "mock-graph-token" for _, token, _ in calls)
+
+
+def test_invalid_graph_api_version_is_rejected_without_network(monkeypatch, tmp_path):
+    _save_fake_connection(monkeypatch, tmp_path)
+    import app.instagram_insights as insights
+    monkeypatch.setenv("META_GRAPH_API_VERSION", "v27.0/attacker")
+    calls = []
+    monkeypatch.setattr(insights, "_graph_get", lambda *args, **kwargs: calls.append(args))
+    with TestClient(app) as client:
+        login(client)
+        response = client.get("/api/instagram/insights")
+        assert response.status_code == 503
+        assert client.get("/api/instagram/media/987654/insights").status_code == 503
+    assert calls == []
