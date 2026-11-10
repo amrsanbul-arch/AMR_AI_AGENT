@@ -21,6 +21,8 @@ type InstagramMedia = { id: string; caption?: string; media_type?: string; media
 type InsightPoint = { value: number; end_time?: string };
 type InsightDatum = { available: boolean; value: number | null; series: InsightPoint[]; reason?: string | null };
 type InstagramInsights = { source: "instagram_graph_api"; range_days: number; since: number; until: number; fetched_at: number; metrics: Record<string, InsightDatum> };
+type PerformanceItem = { id: string; caption: string; media_type?: string | null; media_product_type?: string | null; timestamp?: string | null; permalink?: string | null; like_count: number; comments_count: number; likes_and_comments: number };
+type ContentPerformance = { source: "instagram_graph_api"; sample_size: number; comparable_count: number; missing_count_metrics: number; top_posts: PerformanceItem[]; top_reels: PerformanceItem[]; method: "likes_plus_comments"; notice: string; paging: { next_after: string | null } };
 type PublishPost = { id: string; caption: string; media_url: string; media_type: "IMAGE" | "REELS" | "VIDEO"; state: string; scheduled_at?: string | null; instagram_media_id?: string | null; error_code?: string | null };
 type ImageResult = { generator: "comfyui" | "prompt_only"; prompt: string; image_data_url: string | null; notice: string };
 type TrendNews = { title: string; source: string | null; url: string | null };
@@ -40,7 +42,8 @@ const words: Record<Lang, Copy> = {
     followers: "المتابعون", reach: "الوصول", engagement: "التفاعل", views: "المشاهدات", waiting: "بانتظار الموافقة", scheduled: "مجدول للنشر",
     unavailable: "تظهر البيانات بعد الربط الرسمي", overviewTitle: "ملخص الحساب", overviewSub: "بيانات الحساب غير متاحة حتى الآن.",
     contentTitle: "مساحة المحتوى", contentSub: "الأفكار والمسودات والمحتوى الجاهز للمراجعة.", openStudio: "افتح استوديو المحتوى", emptyDrafts: "مساحة المسودات جاهزة لك", emptyDraftsSub: "أنشئ أفكارًا وكابشنات وسيناريوهات قابلة للتعديل من استوديو المحتوى.",
-    performance: "أداء المحتوى", performanceSub: "ستظهر المقارنات والتوصيات بعد وصول بيانات Insights.", topPosts: "أفضل المنشورات", topReels: "أفضل Reels", noData: "لا توجد بيانات لعرضها بعد",
+    performance: "أداء المحتوى", performanceSub: "مقارنة وصفية لأحدث المحتويات وفق الأرقام الرسمية المتاحة فقط.", topPosts: "أعلى المنشورات", topReels: "أعلى Reels", noData: "لا توجد بيانات لعرضها بعد",
+    countsBasis: "الترتيب حسب مجموع الإعجابات والتعليقات الظاهرة فقط؛ ليس معدل تفاعل ولا إجمالي التفاعلات.", sampleLabel: "من أحدث العناصر المعادة", missingCounts: "عناصر ينقصها عدد الإعجابات أو التعليقات", noComparable: "لا توجد عناصر بأعداد مكتملة للترتيب.", performanceUnavailable: "تعذر تحميل تحليل أداء المحتوى.", observedChange: "التغير الملحوظ", firstLastNote: "فرق أول وآخر نقطة يومية أعادتها Meta؛ لا يفسر سبب التغير.", noChangeData: "لا توجد نقطتان متاحتان للمقارنة.", likes: "إعجاب", comments: "تعليق",
     scheduleTitle: "تقويم النشر", scheduleSub: "هنا ستراجع المسودات والمواعيد قبل النشر.", approvalsTitle: "مراجعتك أولًا", approvalsSub: "المحتوى لن يُنشر قبل تفعيل صلاحية النشر وموافقتك حسب الوضع المختار.",
     settingsTitle: "إعدادات الحساب", settingsSub: "إعداد الاتصال واللغة وطريقة الموافقة.", connection: "اتصال Instagram", officialOnly: "تكامل رسمي فقط", accountType: "نوع الحساب", creator: "Creator · منشئ محتوى", permissions: "الصلاحيات", insightsTitle: "تحليلات Meta الرسمية", insightsSub: "الأرقام تأتي من Instagram Insights؛ قد لا تتوفر بعض المقاييس أو تتأخر.", metricUnavailable: "لم تُرجع Meta هذه القيمة", officialSource: "مصدر: Instagram Graph API", latest: "أحدث قيمة ضمن الفترة", noInsights: "لا توجد بيانات Insights متاحة لهذه الفترة.", notSet: "لم يتم الربط بعد",
     manual: "يدوي", approvalMode: "موافقة قبل النشر", automation: "أتمتة النشر", stop: "إيقاف الأتمتة", stopNote: "متوقف حتى يتم إعداد الربط الرسمي.",
@@ -63,7 +66,8 @@ const words: Record<Lang, Copy> = {
     followers: "Followers", reach: "Reach", engagement: "Engagement", views: "Views", waiting: "Awaiting approval", scheduled: "Scheduled",
     unavailable: "Available after official connection", overviewTitle: "Account overview", overviewSub: "Account data is not available yet.",
     contentTitle: "Content workspace", contentSub: "Ideas, drafts, and content ready for review.", openStudio: "Open content studio", emptyDrafts: "Your drafts space is ready", emptyDraftsSub: "Create editable ideas, captions, and scripts in the content studio.",
-    performance: "Content performance", performanceSub: "Comparisons and recommendations will appear after Insights data is available.", topPosts: "Top posts", topReels: "Top Reels", noData: "No data to show yet",
+    performance: "Content performance", performanceSub: "A descriptive comparison of recent content using only returned official counts.", topPosts: "Top posts", topReels: "Top Reels", noData: "No data to show yet",
+    countsBasis: "Ranked by visible likes plus comments only; this is not an engagement rate or total interactions.", sampleLabel: "Among the latest returned items", missingCounts: "Items missing likes or comments counts", noComparable: "No items have both counts for ranking.", performanceUnavailable: "Content performance could not be loaded.", observedChange: "Observed change", firstLastNote: "Difference between the first and last daily point Meta returned; it does not explain why.", noChangeData: "Fewer than two points are available to compare.", likes: "likes", comments: "comments",
     scheduleTitle: "Publishing calendar", scheduleSub: "Review drafts and timing here before publishing.", approvalsTitle: "Your review comes first", approvalsSub: "Content will not publish until publishing permission and your selected approval mode are in place.",
     settingsTitle: "Account settings", settingsSub: "Connection, language, and approval preferences.", connection: "Instagram connection", officialOnly: "Official integration only", accountType: "Account type", creator: "Creator", permissions: "Permissions", insightsTitle: "Official Meta insights", insightsSub: "Values come from Instagram Insights; some metrics may be unavailable or delayed.", metricUnavailable: "Meta did not return this metric", officialSource: "Source: Instagram Graph API", latest: "Latest value in range", noInsights: "No Insights data is available for this period.", notSet: "Not connected",
     manual: "Manual", approvalMode: "Approval before publishing", automation: "Publishing automation", stop: "Stop automation", stopNote: "Inactive until official connection is configured.",
@@ -141,6 +145,7 @@ export default function Home() {
   const [instagramAccount, setInstagramAccount] = useState<InstagramAccount | null>(null);
   const [instagramMedia, setInstagramMedia] = useState<InstagramMedia[]>([]);
   const [instagramInsights, setInstagramInsights] = useState<InstagramInsights | null>(null);
+  const [contentPerformance, setContentPerformance] = useState<ContentPerformance | null>(null);
   const [instagramBusy, setInstagramBusy] = useState(false);
   const [instagramError, setInstagramError] = useState("");
   const [publishPosts, setPublishPosts] = useState<PublishPost[]>([]);
@@ -286,21 +291,25 @@ export default function Home() {
         setInstagramAccount(null);
         setInstagramMedia([]);
         setInstagramInsights(null);
+        setContentPerformance(null);
         return;
       }
       const rangeDays = range === "today" ? 1 : range === "week" ? 7 : 30;
-      const [accountResponse, mediaResponse, insightsResponse] = await Promise.all([
+      const [accountResponse, mediaResponse, insightsResponse, performanceResponse] = await Promise.all([
         fetch(`${apiBase}/api/instagram/account`, { credentials: "include", cache: "no-store" }),
         fetch(`${apiBase}/api/instagram/media?limit=12`, { credentials: "include", cache: "no-store" }),
         fetch(`${apiBase}/api/instagram/insights?days=${rangeDays}`, { credentials: "include", cache: "no-store" }),
+        fetch(`${apiBase}/api/instagram/performance/content?limit=12`, { credentials: "include", cache: "no-store" }).catch(() => null),
       ]);
       if (!accountResponse.ok || !mediaResponse.ok || !insightsResponse.ok) throw new Error("data-failed");
       const account = await accountResponse.json() as InstagramAccount;
       const media = await mediaResponse.json() as { data?: InstagramMedia[] };
       const insights = await insightsResponse.json() as InstagramInsights;
+      const performance = performanceResponse?.ok ? await performanceResponse.json() as ContentPerformance : null;
       setInstagramAccount(account);
       setInstagramMedia(Array.isArray(media.data) ? media.data : []);
       setInstagramInsights(insights);
+      setContentPerformance(performance);
     } catch (error) {
       if (!(error instanceof Error && error.message === "not-authenticated")) setInstagramError(t.apiLoadError);
     } finally {
@@ -463,6 +472,28 @@ VO AR: ${scene.voiceover_ar}`).join("\n\n");
 
   function insightNote(name: string): string {
     return instagramInsights?.metrics?.[name]?.available ? t.latest : t.metricUnavailable;
+  }
+
+  function observedChange(name: string): string | null {
+    const series = instagramInsights?.metrics?.[name]?.series ?? [];
+    if (series.length < 2) return null;
+    const first = series[0].value;
+    const last = series[series.length - 1].value;
+    if (!Number.isFinite(first) || !Number.isFinite(last)) return null;
+    const delta = last - first;
+    const formatted = new Intl.NumberFormat(lang === "ar" ? "ar-EG" : "en-US", { maximumFractionDigits: 0, signDisplay: "always" }).format(delta);
+    const percent = first > 0 ? ` (${new Intl.NumberFormat(lang === "ar" ? "ar-EG" : "en-US", { maximumFractionDigits: 1, signDisplay: "always" }).format((delta / first) * 100)}%)` : "";
+    return `${formatted}${percent}`;
+  }
+
+  function formatCount(value: number): string {
+    return new Intl.NumberFormat(lang === "ar" ? "ar-EG" : "en-US", { maximumFractionDigits: 0 }).format(value);
+  }
+
+  function renderRanked(items: PerformanceItem[]) {
+    if (!contentPerformance) return <div className="rank-empty"><span className="empty-badge"><Icon name="chart"/></span><strong>{t.performanceUnavailable}</strong></div>;
+    if (contentPerformance.comparable_count === 0 || items.length === 0) return <div className="rank-empty"><span className="empty-badge"><Icon name="chart"/></span><strong>{t.noComparable}</strong></div>;
+    return <ol className="rank-list">{items.map((item) => <li key={item.id}><div className="rank-copy"><strong>{item.caption.trim() || (lang === "ar" ? "بدون كابشن" : "No caption")}</strong><small>{item.timestamp ? new Date(item.timestamp).toLocaleDateString(lang === "ar" ? "ar-EG" : "en-US") : ""} · {formatCount(item.like_count)} {t.likes} · {formatCount(item.comments_count)} {t.comments}</small></div><b>{formatCount(item.likes_and_comments)}</b>{item.permalink && <a href={item.permalink} target="_blank" rel="noreferrer" aria-label={lang === "ar" ? "فتح المنشور في Instagram" : "Open post on Instagram"}>↗</a>}</li>)}</ol>;
   }
 
   function changeView(next: View) {
@@ -676,7 +707,9 @@ VO AR: ${scene.voiceover_ar}`).join("\n\n");
           {!instagramStatus?.connected && <div className="info-strip"><strong>{t.noConnection}</strong><span>{t.unavailable}</span></div>}
           {instagramStatus?.connected && !instagramInsights && <div className="empty-note">{t.noInsights}</div>}
           {instagramInsights && <article className="panel insights-detail"><div className="panel-heading"><div><h3>{t.reach}</h3><p>{instagramInsights.range_days} {lang === "ar" ? "يومًا" : "days"} · {t.latest}</p></div><span className="status-tag">{t.officialSource}</span></div>{(() => { const points = instagramInsights.metrics.reach?.series ?? []; const max = Math.max(1, ...points.map((point) => point.value)); return points.length ? <div className="insight-bars" role="img" aria-label={`${t.reach}: ${points.map((point) => point.value).join(", ")}`}>{points.map((point, index) => <div className="insight-bar-wrap" key={`${point.end_time ?? "point"}-${index}`} title={`${point.end_time ?? ""}: ${point.value}`}><span className="insight-bar" style={{ height: `${Math.max(4, (point.value / max) * 100)}%` }}/><small>{point.end_time ? new Date(point.end_time).toLocaleDateString(lang === "ar" ? "ar-EG" : "en-US", { day: "numeric", month: "short" }) : ""}</small></div>)}</div> : <div className="empty-note">{t.noInsights}</div>; })()}</article>}
-          <div className="lower-grid"><article className="panel rank-panel"><h3>{t.topPosts}</h3><div className="rank-empty"><span className="empty-badge"><Icon name="grid"/></span><strong>{instagramStatus?.connected ? t.noInsights : t.noData}</strong></div></article><article className="panel rank-panel"><h3>{t.topReels}</h3><div className="rank-empty"><span className="empty-badge"><Icon name="chart"/></span><strong>{instagramStatus?.connected ? t.noInsights : t.noData}</strong></div></article></div>
+          {instagramInsights && <article className="panel change-panel"><div className="panel-heading"><div><h3>{t.observedChange}</h3><p>{t.firstLastNote}</p></div></div><div className="change-grid">{([["follower_count", t.followers], ["reach", t.reach], ["views", t.views], ["total_interactions", t.engagement]] as const).map(([key, label]) => <div className="change-item" key={key}><small>{label}</small><strong>{observedChange(key) ?? "—"}</strong></div>)}</div>{(["follower_count", "reach", "views", "total_interactions"].every((key) => observedChange(key) === null)) && <p className="empty-note">{t.noChangeData}</p>}</article>}
+          {instagramStatus?.connected && contentPerformance && <div className="performance-meta"><span>{t.countsBasis}</span><small>{t.sampleLabel}: {contentPerformance.sample_size} · {t.missingCounts}: {contentPerformance.missing_count_metrics}</small></div>}
+          <div className="lower-grid"><article className="panel rank-panel"><h3>{t.topPosts}</h3>{renderRanked(contentPerformance?.top_posts ?? [])}</article><article className="panel rank-panel"><h3>{t.topReels}</h3>{renderRanked(contentPerformance?.top_reels ?? [])}</article></div>
         </section>}
 
         {view === "settings" && <section className="page-content">

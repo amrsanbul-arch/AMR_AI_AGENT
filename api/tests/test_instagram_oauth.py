@@ -391,3 +391,72 @@ def test_invalid_graph_api_version_is_rejected_without_network(monkeypatch, tmp_
         assert response.status_code == 503
         assert client.get("/api/instagram/media/987654/insights").status_code == 503
     assert calls == []
+
+
+def test_content_performance_ranks_only_complete_official_count_pairs(monkeypatch, tmp_path):
+    _save_fake_connection(monkeypatch, tmp_path)
+    import app.instagram_insights as insights
+    calls = []
+
+    def fake_graph(url, token, *, params):
+        calls.append((url, token, params))
+        return {
+            "data": [
+                {"id": "101", "caption": "photo", "media_type": "IMAGE", "like_count": 12, "comments_count": 3},
+                {"id": "102", "caption": "reel", "media_type": "VIDEO", "media_product_type": "REELS", "like_count": 9, "comments_count": 8},
+                {"id": "103", "caption": "missing comments", "media_type": "IMAGE", "like_count": 50},
+                {"id": "104", "media_type": "IMAGE", "like_count": 0, "comments_count": 0},
+                {"id": "105", "media_type": "IMAGE", "like_count": True, "comments_count": 4},
+                {"id": "106", "media_type": "IMAGE", "like_count": -1, "comments_count": 2},
+                {"id": "107", "media_type": "VIDEO", "media_product_type": "REELS", "like_count": 2, "comments_count": 1, "permalink": "https://evil.example/"},
+            ],
+            "paging": {"next": "https://graph.instagram.com/?access_token=secret", "cursors": {"after": "next-safe-cursor"}},
+        }
+
+    monkeypatch.setattr(insights, "_graph_get", fake_graph)
+    with TestClient(app) as client:
+        login(client)
+        response = client.get("/api/instagram/performance/content?limit=9&after=old-cursor")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["source"] == "instagram_graph_api"
+        assert body["sample_size"] == 7
+        assert body["comparable_count"] == 4
+        assert body["missing_count_metrics"] == 3
+        assert [item["id"] for item in body["top_posts"]] == ["101", "104"]
+        assert [item["id"] for item in body["top_reels"]] == ["102", "107"]
+        assert body["top_posts"][0]["likes_and_comments"] == 15
+        assert body["top_posts"][1]["likes_and_comments"] == 0
+        assert body["top_reels"][1]["permalink"] is None
+        assert body["paging"]["next_after"] == "next-safe-cursor"
+        assert "engagement rate" in body["notice"]
+        assert "access_token" not in response.text
+    url, token, params = calls[0]
+    assert url == "https://graph.instagram.com/v27.0/12345/media"
+    assert token == "mock-graph-token"
+    assert params["limit"] == 9 and params["after"] == "old-cursor"
+    assert params["fields"] == instagram.MEDIA_FIELDS
+    assert "access_token" not in params
+
+
+def test_content_performance_requires_owner_and_connection(monkeypatch, tmp_path):
+    configured(monkeypatch, tmp_path)
+    with TestClient(app) as client:
+        assert client.get("/api/instagram/performance/content").status_code == 401
+        login(client)
+        assert client.get("/api/instagram/performance/content?limit=0").status_code == 422
+        assert client.get("/api/instagram/performance/content?limit=51").status_code == 422
+        assert client.get("/api/instagram/performance/content").status_code == 409
+
+
+def test_rank_content_performance_does_not_coerce_missing_to_zero():
+    from app.instagram_insights import rank_content_performance
+    result = rank_content_performance([
+        {"id": "1", "like_count": 0, "comments_count": 0},
+        {"id": "2", "like_count": None, "comments_count": 4},
+        {"id": "3", "like_count": "4", "comments_count": 1},
+        {"id": "../bad", "like_count": 10, "comments_count": 10},
+    ])
+    assert result["comparable_count"] == 1
+    assert result["missing_count_metrics"] == 2
+    assert result["top_posts"][0]["likes_and_comments"] == 0
