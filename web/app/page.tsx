@@ -18,6 +18,7 @@ type InstagramMedia = { id: string; caption?: string; media_type?: string; media
 type InsightPoint = { value: number; end_time?: string };
 type InsightDatum = { available: boolean; value: number | null; series: InsightPoint[]; reason?: string | null };
 type InstagramInsights = { source: "instagram_graph_api"; range_days: number; since: number; until: number; fetched_at: number; metrics: Record<string, InsightDatum> };
+type PublishPost = { id: string; caption: string; media_url: string; media_type: "IMAGE" | "REELS" | "VIDEO"; state: string; scheduled_at?: string | null; instagram_media_id?: string | null; error_code?: string | null };
 
 const words: Record<Lang, Copy> = {
   ar: {
@@ -111,6 +112,12 @@ export default function Home() {
   const [instagramInsights, setInstagramInsights] = useState<InstagramInsights | null>(null);
   const [instagramBusy, setInstagramBusy] = useState(false);
   const [instagramError, setInstagramError] = useState("");
+  const [publishPosts, setPublishPosts] = useState<PublishPost[]>([]);
+  const [postCaption, setPostCaption] = useState("");
+  const [postMediaUrl, setPostMediaUrl] = useState("");
+  const [postMediaType, setPostMediaType] = useState<PublishPost["media_type"]>("IMAGE");
+  const [postBusy, setPostBusy] = useState(false);
+  const [postError, setPostError] = useState("");
   const [oauthNotice, setOauthNotice] = useState("");
   const t = words[lang];
   const rtl = lang === "ar";
@@ -121,6 +128,47 @@ export default function Home() {
   }, [lang, rtl]);
 
   const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+
+  async function refreshPosts() {
+    try {
+      const response = await fetch(`${apiBase}/api/instagram/posts`, { credentials: "include", cache: "no-store" });
+      if (response.status === 401) { setOwnerSession((current) => ({ ...current, authenticated: false })); return; }
+      if (!response.ok) throw new Error("posts-failed");
+      const payload = await response.json() as { data?: PublishPost[] };
+      setPublishPosts(Array.isArray(payload.data) ? payload.data : []);
+    } catch { setPostError(lang === "ar" ? "تعذر تحميل جدول المحتوى." : "Could not load the publishing queue."); }
+  }
+
+  async function createInstagramDraft(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setPostBusy(true); setPostError("");
+    try {
+      const response = await fetch(`${apiBase}/api/instagram/posts`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ caption: postCaption, media_url: postMediaUrl, media_type: postMediaType }) });
+      if (!response.ok) throw new Error("draft-failed");
+      const item = await response.json() as PublishPost; setPublishPosts((items) => [item, ...items]); setPostCaption(""); setPostMediaUrl("");
+    } catch { setPostError(lang === "ar" ? "تعذر حفظ المسودة. استخدم رابط HTTPS عامًا للصورة أو الفيديو." : "Could not save draft. Use a public HTTPS image or video URL."); }
+    finally { setPostBusy(false); }
+  }
+
+  async function approveInstagramPost(id: string, mode: "publish_now" | "schedule", localTime?: string) {
+    setPostBusy(true); setPostError("");
+    try {
+      const scheduled_at = mode === "schedule" && localTime ? new Date(localTime).toISOString() : undefined;
+      const response = await fetch(`${apiBase}/api/instagram/posts/${id}/approve`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approved: true, mode, ...(scheduled_at ? { scheduled_at } : {}) }) });
+      const result = await response.json() as PublishPost;
+      if (!response.ok) throw new Error("approval-failed");
+      setPublishPosts((items) => items.map((item) => item.id === id ? result : item));
+      if (result.state === "unknown") setPostError(lang === "ar" ? "نتيجة النشر غير محسومة؛ لن نعيد المحاولة تلقائيًا لتجنب التكرار." : "The publish result is unclear; it will not be retried automatically to avoid duplicates.");
+      else if (result.state === "failed") setPostError(lang === "ar" ? "لم يتم النشر. راجع الاتصال والصلاحيات قبل أي محاولة جديدة." : "It was not published. Check the connection and permissions before trying again.");
+    } catch { setPostError(lang === "ar" ? "تعذر تنفيذ الموافقة. حدّث الحالة قبل إعادة المحاولة." : "Approval could not be completed. Refresh the status before retrying."); }
+    finally { setPostBusy(false); }
+  }
+
+  async function cancelInstagramSchedule(id: string) {
+    setPostBusy(true); setPostError("");
+    try { const response = await fetch(`${apiBase}/api/instagram/posts/${id}/cancel`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: "{}" }); const result = await response.json() as PublishPost; if (!response.ok) throw new Error("cancel-failed"); setPublishPosts((items) => items.map((item) => item.id === id ? result : item)); }
+    catch { setPostError(lang === "ar" ? "تعذر إلغاء الموعد؛ حدّث الحالة." : "Could not cancel the schedule; refresh its status."); }
+    finally { setPostBusy(false); }
+  }
 
   async function refreshInstagram() {
     setInstagramBusy(true);
@@ -176,7 +224,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!authLoading && ownerSession.authenticated) void refreshInstagram();
+    if (!authLoading && ownerSession.authenticated) { void refreshInstagram(); void refreshPosts(); }
   }, [authLoading, ownerSession.authenticated, range]);
 
   async function loginOwner(event: FormEvent<HTMLFormElement>) {
@@ -347,9 +395,25 @@ export default function Home() {
         </section>}
 
         {view === "calendar" && <section className="page-content">
-          <div className="page-title-row"><div><p className="eyebrow">{t.stage}</p><h1>{t.scheduleTitle}</h1><p>{t.scheduleSub}</p></div><span className="status-tag">{t.coming}</span></div>
-          <div className="calendar-empty panel"><div className="calendar-head"><strong>{t.month}</strong><span>{t.updated} · {t.none}</span></div><div className="calendar-placeholder">{[...Array(35)].map((_, i) => <span key={i} className="calendar-day">{i > 1 && i < 32 ? i - 1 : ""}</span>)}</div><div className="empty-note"><Icon name="lock" size={16}/>{t.noData}</div></div>
-          <div className="info-strip"><strong>{t.approvalsTitle}</strong><span>{t.approvalsSub}</span></div>
+          <div className="page-title-row"><div><p className="eyebrow">{t.stage}</p><h1>{t.scheduleTitle}</h1><p>{lang === "ar" ? "كل منشور يحتاج موافقتك الصريحة قبل النشر أو الجدولة." : "Every post needs your explicit approval before publishing or scheduling."}</p></div><span className="status-tag">{instagramStatus?.connected ? t.connected : t.offline}</span></div>
+          <div className="studio-workspace panel">
+            <form className="content-form" onSubmit={createInstagramDraft}>
+              <div className="form-field"><label htmlFor="publish-caption">{lang === "ar" ? "الكابشن (حتى 2200 حرف)" : "Caption (up to 2,200 characters)"}</label><textarea id="publish-caption" maxLength={2200} rows={4} value={postCaption} onChange={(event) => setPostCaption(event.target.value)} /></div>
+              <div className="form-field"><label htmlFor="publish-url">{lang === "ar" ? "رابط الصورة أو الفيديو العام (HTTPS)" : "Public image or video URL (HTTPS)"}</label><input id="publish-url" type="url" required value={postMediaUrl} onChange={(event) => setPostMediaUrl(event.target.value)} placeholder="https://" /></div>
+              <div className="form-field"><label htmlFor="publish-type">{lang === "ar" ? "النوع" : "Media type"}</label><select id="publish-type" value={postMediaType} onChange={(event) => setPostMediaType(event.target.value as PublishPost["media_type"])}><option value="IMAGE">Image</option><option value="REELS">Reel</option><option value="VIDEO">Video</option></select></div>
+              <button className="primary-button" type="submit" disabled={postBusy || !ownerSession.authenticated}><span>{lang === "ar" ? "حفظ كمسودة للمراجعة" : "Save draft for review"}</span></button>
+            </form>
+          </div>
+          {postError && <p className="form-error" role="alert">{postError}</p>}
+          <div className="lower-grid">{publishPosts.map((item) => <article className="panel rank-panel" key={item.id}>
+            <span className="status-tag">{item.state}</span><p>{item.media_type} · <a href={item.media_url} target="_blank" rel="noreferrer">{lang === "ar" ? "عرض الوسائط" : "View media"}</a></p><p className="result-body">{item.caption || (lang === "ar" ? "بدون كابشن" : "No caption")}</p>
+            {item.scheduled_at && <p>{new Date(item.scheduled_at).toLocaleString(lang === "ar" ? "ar-EG" : "en-US")}</p>}
+            {item.state === "draft" && <><div className="form-field"><label htmlFor={`time-${item.id}`}>{lang === "ar" ? "موعد النشر (اختياري للجدولة)" : "Publish time (for scheduling)"}</label><input id={`time-${item.id}`} type="datetime-local" /></div><div className="form-row"><button className="primary-button" type="button" disabled={postBusy || !instagramStatus?.connected} onClick={() => void approveInstagramPost(item.id, "publish_now")}>{lang === "ar" ? "أوافق وانشر الآن" : "Approve and publish now"}</button><button className="secondary-button" type="button" disabled={postBusy || !instagramStatus?.connected} onClick={() => { const input = document.getElementById(`time-${item.id}`) as HTMLInputElement | null; if (input?.value) void approveInstagramPost(item.id, "schedule", input.value); else setPostError(lang === "ar" ? "اختر موعدًا مستقبليًا أولًا." : "Choose a future time first."); }}>{lang === "ar" ? "أوافق وجدول النشر" : "Approve and schedule"}</button></div></>}
+            {item.state === "scheduled" && <button className="secondary-button" type="button" disabled={postBusy} onClick={() => void cancelInstagramSchedule(item.id)}>{lang === "ar" ? "إلغاء الموعد" : "Cancel schedule"}</button>}
+            {item.state === "published" && <p>{lang === "ar" ? "تم النشر عبر Instagram API الرسمي." : "Published through the official Instagram API."}</p>}
+          </article>)}</div>
+          {!publishPosts.length && <div className="empty-note">{lang === "ar" ? "لا توجد مسودات بعد." : "No drafts yet."}</div>}
+          <div className="info-strip"><strong>{t.approvalsTitle}</strong><span>{lang === "ar" ? "الجدولة تُدار داخل التطبيق؛ يلزم أن يبقى الخادم المجاني يعمل في موعد النشر." : "Scheduling is app-managed; the free server must be running when a post is due."}</span></div>
         </section>}
 
         {view === "insights" && <section className="page-content">

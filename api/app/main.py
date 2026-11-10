@@ -1,4 +1,6 @@
+import asyncio
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,11 +9,28 @@ from app.content import ContentRequest, ContentResponse, generate_content
 from app.instagram_oauth import router as instagram_router
 from app.instagram_insights import router as instagram_insights_router
 from app.owner_auth import router as owner_auth_router
+from app.instagram_publishing import router as instagram_publishing_router, scheduler_enabled, scheduled_publisher_loop
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    scheduler = asyncio.create_task(scheduled_publisher_loop()) if scheduler_enabled() else None
+    try:
+        yield
+    finally:
+        if scheduler is not None:
+            scheduler.cancel()
+            try:
+                await scheduler
+            except asyncio.CancelledError:
+                pass
+
 
 app = FastAPI(
     title="AMR AI – Personal Instagram Manager",
     version="0.4.0",
     description="Content assistant and optional official Instagram OAuth scaffold. No account is connected by default.",
+    lifespan=lifespan,
 )
 
 web_origins = [
@@ -31,6 +50,7 @@ app.add_middleware(
 app.include_router(owner_auth_router)
 app.include_router(instagram_router)
 app.include_router(instagram_insights_router)
+app.include_router(instagram_publishing_router)
 
 
 @app.get("/healthz", tags=["system"])

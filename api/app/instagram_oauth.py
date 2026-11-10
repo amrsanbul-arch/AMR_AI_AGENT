@@ -41,7 +41,7 @@ def _graph_url(path: str) -> str:
     return f"{GRAPH_ROOT}/{_graph_version()}/{path.lstrip(chr(47))}"
 PROFILE_FIELDS = "user_id,username,account_type,media_count"
 MEDIA_FIELDS = "id,caption,media_type,media_product_type,media_url,permalink,timestamp,thumbnail_url,like_count,comments_count"
-REQUIRED_SCOPES = ("instagram_business_basic", "instagram_business_manage_insights")
+REQUIRED_SCOPES = ("instagram_business_basic", "instagram_business_manage_insights", "instagram_business_content_publish")
 
 
 def _frontend_return_url(result: str) -> str:

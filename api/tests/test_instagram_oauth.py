@@ -118,7 +118,7 @@ def test_connect_builds_official_minimal_scope_and_httponly_state(monkeypatch, t
         query = parse_qs(url.query)
         assert url.scheme == "https" and url.netloc == "www.instagram.com"
         assert url.path == "/oauth/authorize"
-        assert query["scope"] == ["instagram_business_basic,instagram_business_manage_insights"]
+        assert query["scope"] == ["instagram_business_basic,instagram_business_manage_insights,instagram_business_content_publish"]
         assert query["redirect_uri"] == ["http://localhost:8000/api/instagram/callback"]
         assert response.cookies[instagram.STATE_COOKIE] == query["state"][0]
         cookie = response.headers["set-cookie"].lower()
