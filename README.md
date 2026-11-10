@@ -35,7 +35,16 @@ uv run uvicorn app.main:app --app-dir api --reload --no-access-log
 cp .env.example .env
 ```
 
-املأ `META_APP_ID`, `META_APP_SECRET`, `META_REDIRECT_URI=http://localhost:8000/api/instagram/callback`. أنشئ `INSTAGRAM_TOKEN_ENCRYPTION_KEY` محليًا بالأمر الموجود في `.env.example`. لا ترسل أسرار Meta أو مفتاح التشفير إلى Wabi أو GitHub. عند اكتمال الإعداد محليًا، يمكن بدء تدفق التفويض من `/api/instagram/connect`; حالة الحساب تقرأ من `/api/instagram/status`; حذف الرمز المحفوظ محليًا يتم عبر `POST /api/instagram/disconnect`.
+املأ `META_APP_ID`, `META_APP_SECRET`, `META_REDIRECT_URI=http://localhost:8000/api/instagram/callback`. أنشئ `INSTAGRAM_TOKEN_ENCRYPTION_KEY` محليًا بالأمر الموجود في `.env.example`. حمّل متغيرات `.env` في جلسة الطرفية قبل تشغيل الخادم (الملف لا يُحمّل تلقائيًا):
+
+```sh
+set -a
+. ./.env
+set +a
+uv run uvicorn app.main:app --app-dir api --reload --no-access-log
+```
+
+لا ترسل أسرار Meta أو مفتاح التشفير إلى Wabi أو GitHub. عند اكتمال الإعداد محليًا، يمكن بدء تدفق التفويض من `/api/instagram/connect`; حالة الحساب تقرأ من `/api/instagram/status`; حذف الرمز المحفوظ محليًا يتم عبر `POST /api/instagram/disconnect`.
 
 هذه المرحلة لم تستخدم بيانات اعتماد حقيقية أو حسابًا مباشرًا؛ نجاح الاختبارات لا يثبت أن Meta وافقت على التطبيق أو أن الربط الحقيقي يعمل. لا تشغّل OAuth في الإنتاج: المشروع لا يحتوي بعد على تسجيل دخول/تحقق من مالك لوحة التحكم، ولذلك تُعطل المسارات إذا كان `APP_ENV=production`. يلزم إضافة حماية مالك موثقة قبل فتحها عبر الإنترنت. إعدادات التطوير تسمح فقط بعنوان callback محلي أو HTTPS ثابت على مسار callback المحدد. رموز OAuth تمر في طلبات الخادم المطلوبة من Meta؛ لا تفعّل سجلات HTTP أو proxy التي تحفظ query string لهذه الطلبات/المسارات.
 
