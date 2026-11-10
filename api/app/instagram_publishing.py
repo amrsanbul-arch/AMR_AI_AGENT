@@ -22,6 +22,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.owner_auth import _check_request_origin, require_owner
 from app.instagram_oauth import Settings, _graph_url, _stored_access_token
+from app.audit_log import record_event
+from app.secure_storage import prepare_private_sqlite
 
 router = APIRouter(prefix="/api/instagram", tags=["instagram-publishing"], dependencies=[Depends(require_owner)])
 MAX_CAPTION = 2200
@@ -75,24 +77,24 @@ class PublishServiceError(Exception):
 
 
 def _db_path() -> Path:
-    path = Path(os.getenv("INSTAGRAM_POSTS_DB_PATH", "data/instagram_posts.sqlite3"))
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    try:
-        path.parent.chmod(0o700)
-    except OSError:
-        pass
-    return path
+    return prepare_private_sqlite(Path(os.getenv("INSTAGRAM_POSTS_DB_PATH", "data/instagram_posts.sqlite3")))
 
 
 def _db() -> sqlite3.Connection:
     db = sqlite3.connect(_db_path(), timeout=5, isolation_level="IMMEDIATE")
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA busy_timeout=5000")
+    db.execute("""CREATE TABLE IF NOT EXISTS scheduler_control (
+      id INTEGER PRIMARY KEY CHECK (id = 1), paused INTEGER NOT NULL DEFAULT 0
+    )""")
+    db.execute("INSERT OR IGNORE INTO scheduler_control(id, paused) VALUES(1, 0)")
     db.execute("""CREATE TABLE IF NOT EXISTS instagram_posts (
       id TEXT PRIMARY KEY, caption TEXT NOT NULL, media_url TEXT NOT NULL, media_type TEXT NOT NULL,
       state TEXT NOT NULL, scheduled_at TEXT, approved_hash TEXT, approved_at TEXT,
       instagram_media_id TEXT, error_code TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     )""")
+    # Commit schema/default-row setup so claim code can start an explicit IMMEDIATE transaction.
+    db.commit()
     return db
 
 
@@ -121,6 +123,7 @@ def _update_state(post_id: str, state: str, *, error: str | None = None, media_i
     with _db() as db:
         db.execute("UPDATE instagram_posts SET state=?, error_code=?, instagram_media_id=COALESCE(?,instagram_media_id), updated_at=? WHERE id=?",
                    (state, error, media_id, _now(), post_id))
+    record_event("publishing.state", state, post_id)
 
 
 def _graph_request(client: httpx.Client, method: str, url: str, *, data: dict | None = None, params: dict | None = None) -> dict:
@@ -206,16 +209,23 @@ def _execute_claimed(post_id: str, *, client_factory=None, sleep=time.sleep,
 def _claim(post_id: str, *, due_only: bool = False) -> bool:
     now = _now()
     with _db() as db:
+        db.execute("BEGIN IMMEDIATE")
         row = db.execute("SELECT * FROM instagram_posts WHERE id=?", (post_id,)).fetchone()
         if row is None or row["approved_hash"] != _content_hash(row):
             return False
         if due_only:
+            paused = db.execute("SELECT paused FROM scheduler_control WHERE id=1").fetchone()[0]
+            if paused:
+                return False
             cursor = db.execute("UPDATE instagram_posts SET state='publishing', updated_at=? WHERE id=? AND state='scheduled' AND scheduled_at<=?",
                                 (now, post_id, now))
         else:
             cursor = db.execute("UPDATE instagram_posts SET state='publishing', updated_at=? WHERE id=? AND state='approved'",
                                 (now, post_id))
-        return cursor.rowcount == 1
+        claimed = cursor.rowcount == 1
+    if claimed:
+        record_event("publishing.state", "publishing", post_id)
+    return claimed
 
 
 @router.post("/posts", status_code=201)
@@ -225,6 +235,7 @@ def create_draft(body: DraftInput, request: Request) -> dict:
     with _db() as db:
         db.execute("INSERT INTO instagram_posts(id,caption,media_url,media_type,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
                    (post_id, body.caption, body.media_url, body.media_type, "draft", now, now))
+    record_event("publishing.draft_created", "draft", post_id)
     return _serialize(_get(post_id))
 
 
@@ -244,6 +255,7 @@ def update_draft(post_id: str, body: DraftInput, request: Request) -> dict:
     with _db() as db:
         db.execute("UPDATE instagram_posts SET caption=?,media_url=?,media_type=?,updated_at=? WHERE id=? AND state='draft'",
                    (body.caption, body.media_url, body.media_type, _now(), post_id))
+    record_event("publishing.draft_updated", "draft", post_id)
     return _serialize(_get(post_id))
 
 
@@ -271,6 +283,7 @@ def approve_post(post_id: str, body: ApprovalInput, request: Request) -> dict:
         db.execute("UPDATE instagram_posts SET state=?,scheduled_at=?,approved_hash=?,approved_at=?,updated_at=? WHERE id=? AND state='draft'",
                    (state, scheduled_at, snapshot, _now(), _now(), post_id))
     if body.mode == "schedule":
+        record_event("publishing.state", "scheduled", post_id)
         return _serialize(_get(post_id))
     if not _claim(post_id):
         raise HTTPException(status_code=409, detail="Approval could not be claimed; review the post status before retrying.")
@@ -285,6 +298,7 @@ def cancel_scheduled(post_id: str, request: Request) -> dict:
                             (_now(), post_id))
     if cursor.rowcount != 1:
         raise HTTPException(status_code=409, detail="Only a scheduled post can be cancelled.")
+    record_event("publishing.state", "cancelled", post_id)
     return _serialize(_get(post_id))
 
 
@@ -299,9 +313,45 @@ async def scheduled_publisher_loop() -> None:
                 if _claim(row["id"], due_only=True):
                     await asyncio.to_thread(_execute_claimed, row["id"])
         except Exception:
-            # Keep scheduler alive; individual errors are stored on each job where possible.
-            pass
+            # Keep scheduler alive without leaking captions, tokens, URLs, or exception text.
+            record_event("publishing.scheduler_error", "error")
         await asyncio.sleep(20)
+
+
+class EmptyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+def _set_scheduler_paused(paused: bool) -> dict[str, bool]:
+    with _db() as db:
+        db.execute("UPDATE scheduler_control SET paused=? WHERE id=1", (1 if paused else 0,))
+        stored = bool(db.execute("SELECT paused FROM scheduler_control WHERE id=1").fetchone()[0])
+    return {"configured": scheduler_enabled(), "paused": stored, "active": scheduler_enabled() and not stored}
+
+
+@router.get("/scheduler")
+def get_scheduler_status() -> dict[str, bool]:
+    with _db() as db:
+        row = db.execute("SELECT paused FROM scheduler_control WHERE id=1").fetchone()
+    paused = bool(row[0]) if row else False
+    enabled = scheduler_enabled()
+    return {"configured": enabled, "paused": paused, "active": enabled and not paused}
+
+
+@router.post("/scheduler/pause")
+def pause_scheduler(request: Request, _body: EmptyRequest) -> dict[str, bool]:
+    _check_request_origin(request)
+    result = _set_scheduler_paused(True)
+    record_event("publishing.scheduler_paused", "paused")
+    return result
+
+
+@router.post("/scheduler/resume")
+def resume_scheduler(request: Request, _body: EmptyRequest) -> dict[str, bool]:
+    _check_request_origin(request)
+    result = _set_scheduler_paused(False)
+    record_event("publishing.scheduler_resumed", "resumed")
+    return result
 
 
 def scheduler_enabled() -> bool:

@@ -14,6 +14,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
+from app.audit_log import record_event
+
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
 COOKIE_NAME = "amr_owner_session"
 SESSION_TTL_SECONDS = 12 * 60 * 60
@@ -158,12 +160,15 @@ def owner_login(body: LoginRequest, request: Request, response: Response) -> dic
     key = request.client.host if request.client else "unknown"
     now = time.monotonic()
     if not _check_rate_limit(key, now):
+        record_event("auth.login", "rate_limited")
         raise HTTPException(status_code=429, detail="Too many sign-in attempts. Try again later.")
     encoded = os.getenv("AMR_OWNER_PASSWORD_HASH", "")
     if not _verify_password(body.password, encoded):
         _record_failure(key, now)
+        record_event("auth.login", "failure")
         raise HTTPException(status_code=401, detail="Invalid owner credentials.")
     _clear_failures(key)
+    record_event("auth.login", "success")
     app_env = os.getenv("APP_ENV", "development").strip().lower()
     response.set_cookie(
         COOKIE_NAME, _session_token(), max_age=SESSION_TTL_SECONDS,
@@ -180,4 +185,5 @@ def owner_logout(request: Request, response: Response, _: None = Depends(require
                            secure=os.getenv("APP_ENV", "development").strip().lower() == "production",
                            samesite="lax")
     response.headers["Cache-Control"] = "no-store"
+    record_event("auth.logout", "success")
     return {"authenticated": False}

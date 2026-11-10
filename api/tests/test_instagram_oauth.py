@@ -194,12 +194,39 @@ def test_callback_mock_exchange_encrypts_token_and_returns_no_secret(monkeypatch
         assert len(calls) == 3
         assert response.headers["cache-control"] == "no-store"
         assert "max-age=0" in response.headers["set-cookie"].lower()
-        with sqlite3.connect(tmp_path / "private" / "instagram.sqlite3") as db:
+        token_db = tmp_path / "private" / "instagram.sqlite3"
+        assert token_db.parent.stat().st_mode & 0o777 == 0o700
+        assert token_db.stat().st_mode & 0o777 == 0o600
+        with sqlite3.connect(token_db) as db:
             encrypted = db.execute("select encrypted_token from instagram_connection").fetchone()[0]
         assert b"long-test-token" not in encrypted
         assert Fernet(key.encode()).decrypt(encrypted).decode() == "long-test-token"
         stored = client.get("/api/instagram/status").json()
         assert stored["connected"] is True and "access_token" not in stored
+
+
+def test_callback_exchange_failure_is_audited_without_error_details(monkeypatch, tmp_path):
+    configured(monkeypatch, tmp_path)
+    audit_path = tmp_path / "private" / "audit.sqlite3"
+    monkeypatch.setenv("AMR_AUDIT_DB_PATH", str(audit_path))
+
+    class FailingClient:
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def request(self, *args, **kwargs):
+            raise instagram.httpx.ConnectError("private-token-or-url-must-not-be-logged")
+
+    monkeypatch.setattr(instagram.httpx, "Client", FailingClient)
+    with TestClient(app) as client:
+        login(client)
+        state = "known-test-state"
+        response = client.get("/api/instagram/callback", params={"code": "mock-code", "state": state},
+                              cookies={instagram.STATE_COOKIE: state}, follow_redirects=False)
+        assert response.status_code == 502
+        assert "private-token-or-url-must-not-be-logged" not in response.text
+    with sqlite3.connect(audit_path) as db:
+        event, outcome = db.execute("SELECT event, outcome FROM audit_events ORDER BY id DESC LIMIT 1").fetchone()
+    assert (event, outcome) == ("instagram.oauth_result", "failure")
 
 
 def _save_fake_connection(monkeypatch, tmp_path):

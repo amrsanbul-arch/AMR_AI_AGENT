@@ -19,6 +19,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.owner_auth import require_owner
+from app.audit_log import record_event
+from app.secure_storage import prepare_private_sqlite
 
 router = APIRouter(prefix="/api/instagram", tags=["instagram"], dependencies=[Depends(require_owner)])
 STATE_COOKIE = "amr_ig_oauth_state"
@@ -100,12 +102,7 @@ def _fernet(key: str) -> Fernet:
 def _store(settings: Settings, *, encrypted_token: bytes | None = None,
            username: str | None = None, user_id: str | None = None,
            expires_at: int | None = None, delete: bool = False) -> dict | None:
-    path = Path(settings.db_path)
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    try:
-        path.parent.chmod(0o700)
-    except OSError:
-        pass
+    path = prepare_private_sqlite(Path(settings.db_path))
     with sqlite3.connect(path) as db:
         db.execute("PRAGMA busy_timeout=5000")
         db.execute("""CREATE TABLE IF NOT EXISTS instagram_connection (
@@ -173,6 +170,7 @@ def instagram_connect():
         "enable_fb_login": "0", "force_authentication": "1",
     })
     redirect = RedirectResponse(f"{AUTH_URL}?{query}", status_code=302)
+    record_event("instagram.connect_started", "success")
     redirect.set_cookie(STATE_COOKIE, state, max_age=600, httponly=True,
                         secure=settings.app_env == "production", samesite="lax", path=CALLBACK_PATH)
     redirect.headers["Cache-Control"] = "no-store"
@@ -186,41 +184,48 @@ def instagram_callback(request: Request, code: str = "", state: str = "", error:
         raise HTTPException(status_code=503, detail="Instagram OAuth is not configured for local development.")
     expected_state = request.cookies.get(STATE_COOKIE, "")
     if error:
+        record_event("instagram.oauth_result", "denied")
         result = JSONResponse({"status": "not_connected", "connected": False,
                                "detail": "Instagram authorization was not completed."}, status_code=400)
     elif not code or not state or not expected_state or not hmac.compare_digest(state, expected_state):
+        record_event("instagram.oauth_result", "failure")
         result = JSONResponse({"detail": "Instagram authorization response is invalid or expired."}, status_code=400)
     else:
-        with httpx.Client() as client:
-            short = _request_json(client, "POST", SHORT_TOKEN_URL, data={
-                "client_id": settings.app_id, "client_secret": settings.app_secret,
-                "grant_type": "authorization_code", "redirect_uri": settings.redirect_uri,
-                "code": code,
-            })
-            short_token = short.get("access_token")
-            if not isinstance(short_token, str) or not short_token:
-                raise HTTPException(status_code=502, detail="Instagram did not return an access token.")
-            long_lived = _request_json(client, "GET", LONG_TOKEN_URL, params={
-                "grant_type": "ig_exchange_token", "client_secret": settings.app_secret,
-                "access_token": short_token,
-            })
-            long_token = long_lived.get("access_token")
-            if not isinstance(long_token, str) or not long_token:
-                raise HTTPException(status_code=502, detail="Instagram did not return a long-lived token.")
-            profile = _request_json(client, "GET", _graph_url("me"), params={
-                "fields": PROFILE_FIELDS, "access_token": long_token,
-            })
-        user_id, username = profile.get("user_id"), profile.get("username")
-        if not isinstance(user_id, (str, int)) or not isinstance(username, str) or not username:
-            raise HTTPException(status_code=502, detail="Instagram profile details were unavailable.")
         try:
-            encrypted = _fernet(settings.encryption_key).encrypt(long_token.encode("utf-8"))
-            expiry = long_lived.get("expires_in")
-            expires_at = int(time.time()) + int(expiry) if isinstance(expiry, (int, float)) else None
-            connection = _store(settings, encrypted_token=encrypted, username=username,
-                                user_id=str(user_id), expires_at=expires_at)
-        except (sqlite3.Error, OSError, ValueError, TypeError):
-            raise HTTPException(status_code=503, detail="Instagram credentials could not be stored securely.") from None
+            with httpx.Client() as client:
+                short = _request_json(client, "POST", SHORT_TOKEN_URL, data={
+                    "client_id": settings.app_id, "client_secret": settings.app_secret,
+                    "grant_type": "authorization_code", "redirect_uri": settings.redirect_uri,
+                    "code": code,
+                })
+                short_token = short.get("access_token")
+                if not isinstance(short_token, str) or not short_token:
+                    raise HTTPException(status_code=502, detail="Instagram did not return an access token.")
+                long_lived = _request_json(client, "GET", LONG_TOKEN_URL, params={
+                    "grant_type": "ig_exchange_token", "client_secret": settings.app_secret,
+                    "access_token": short_token,
+                })
+                long_token = long_lived.get("access_token")
+                if not isinstance(long_token, str) or not long_token:
+                    raise HTTPException(status_code=502, detail="Instagram did not return a long-lived token.")
+                profile = _request_json(client, "GET", _graph_url("me"), params={
+                    "fields": PROFILE_FIELDS, "access_token": long_token,
+                })
+            user_id, username = profile.get("user_id"), profile.get("username")
+            if not isinstance(user_id, (str, int)) or not isinstance(username, str) or not username:
+                raise HTTPException(status_code=502, detail="Instagram profile details were unavailable.")
+            try:
+                encrypted = _fernet(settings.encryption_key).encrypt(long_token.encode("utf-8"))
+                expiry = long_lived.get("expires_in")
+                expires_at = int(time.time()) + int(expiry) if isinstance(expiry, (int, float)) else None
+                connection = _store(settings, encrypted_token=encrypted, username=username,
+                                    user_id=str(user_id), expires_at=expires_at)
+            except (sqlite3.Error, OSError, ValueError, TypeError):
+                raise HTTPException(status_code=503, detail="Instagram credentials could not be stored securely.") from None
+        except HTTPException:
+            record_event("instagram.oauth_result", "failure")
+            raise
+        record_event("instagram.oauth_result", "connected")
         result = RedirectResponse(_frontend_return_url("connected"), status_code=303)
     result.delete_cookie(STATE_COOKIE, path=CALLBACK_PATH)
     result.headers["Cache-Control"] = "no-store"
@@ -309,5 +314,6 @@ def instagram_disconnect() -> dict[str, object]:
         _store(settings, delete=True)
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Local Instagram credentials could not be removed.") from None
+    record_event("instagram.disconnect", "disconnected")
     return {"status": "not_connected", "connected": False, "provider": "instagram",
             "notice": "Local credentials removed. Revoke app access in Instagram settings to revoke Meta authorization."}

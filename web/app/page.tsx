@@ -26,6 +26,7 @@ type InstagramInsights = { source: "instagram_graph_api"; range_days: number; si
 type PerformanceItem = { id: string; caption: string; media_type?: string | null; media_product_type?: string | null; timestamp?: string | null; permalink?: string | null; like_count: number; comments_count: number; likes_and_comments: number };
 type ContentPerformance = { source: "instagram_graph_api"; sample_size: number; comparable_count: number; missing_count_metrics: number; top_posts: PerformanceItem[]; top_reels: PerformanceItem[]; method: "likes_plus_comments"; notice: string; paging: { next_after: string | null } };
 type PublishPost = { id: string; caption: string; media_url: string; media_type: "IMAGE" | "REELS" | "VIDEO"; state: string; scheduled_at?: string | null; instagram_media_id?: string | null; error_code?: string | null };
+type SchedulerStatus = { configured: boolean; paused: boolean; active: boolean };
 type ImageResult = { generator: "comfyui" | "prompt_only"; prompt: string; image_data_url: string | null; notice: string };
 type TrendNews = { title: string; source: string | null; url: string | null };
 type TrendItem = { query: string; approximate_traffic: string | null; started_at: string | null; relevance: number; matched_terms: string[]; news: TrendNews[] };
@@ -50,7 +51,7 @@ const words: Record<Lang, Copy> = {
     countsBasis: "الترتيب حسب مجموع الإعجابات والتعليقات الظاهرة فقط؛ ليس معدل تفاعل ولا إجمالي التفاعلات.", sampleLabel: "من أحدث العناصر المعادة", missingCounts: "عناصر ينقصها عدد الإعجابات أو التعليقات", noComparable: "لا توجد عناصر بأعداد مكتملة للترتيب.", performanceUnavailable: "تعذر تحميل تحليل أداء المحتوى.", observedChange: "التغير الملحوظ", firstLastNote: "فرق أول وآخر نقطة يومية أعادتها Meta؛ لا يفسر سبب التغير.", noChangeData: "لا توجد نقطتان متاحتان للمقارنة.", likes: "إعجاب", comments: "تعليق",
     scheduleTitle: "تقويم النشر", scheduleSub: "هنا ستراجع المسودات والمواعيد قبل النشر.", approvalsTitle: "مراجعتك أولًا", approvalsSub: "المحتوى لن يُنشر قبل تفعيل صلاحية النشر وموافقتك حسب الوضع المختار.",
     settingsTitle: "إعدادات الحساب", settingsSub: "إعداد الاتصال واللغة وطريقة الموافقة.", connection: "اتصال Instagram", officialOnly: "تكامل رسمي فقط", accountType: "نوع الحساب", creator: "Creator · منشئ محتوى", permissions: "الصلاحيات", insightsTitle: "تحليلات Meta الرسمية", insightsSub: "الأرقام تأتي من Instagram Insights؛ قد لا تتوفر بعض المقاييس أو تتأخر.", metricUnavailable: "لم تُرجع Meta هذه القيمة", officialSource: "مصدر: Instagram Graph API", latest: "أحدث قيمة ضمن الفترة", noInsights: "لا توجد بيانات Insights متاحة لهذه الفترة.", notSet: "لم يتم الربط بعد",
-    manual: "يدوي", approvalMode: "موافقة قبل النشر", automation: "أتمتة النشر", stop: "إيقاف الأتمتة", stopNote: "متوقف حتى يتم إعداد الربط الرسمي.",
+    manual: "يدوي", approvalMode: "موافقة قبل النشر", automation: "جدولة النشر", stop: "إيقاف الأتمتة", stopNote: "تحكم يدوي في النشر المجدول من التقويم.", schedulerActive: "الجدولة مفعّلة", schedulerPaused: "الجدولة متوقفة مؤقتًا", schedulerDisabled: "عامل الجدولة غير مفعّل على الخادم.", pauseScheduler: "إيقاف الجدولة مؤقتًا", resumeScheduler: "استئناف الجدولة", schedulerCaveat: "الإيقاف يمنع بدء منشورات مجدولة جديدة؛ لا يوقف عملية نشر بدأت بالفعل.", schedulerError: "تعذر تغيير حالة الجدولة. حدّث الحالة قبل المحاولة مجددًا.",
     mobileNav: "التنقل", coming: "قيد التجهيز", stage: "المرحلة 2 · لوحة التحكم", zeroData: "لا بيانات تجريبية", zeroDataSub: "كل الأرقام تبقى فارغة حتى نقرأها من مصدر حقيقي.",
     today: "آخر 24 ساعة", week: "آخر 7 أيام", month: "آخر 30 يومًا", updated: "آخر تحديث", none: "—", apiStatus: "حالة الربط", noConnection: "لا يوجد اتصال بإنستجرام", onlyOfficial: "لن نستخدم تسجيل دخول أو كشطًا غير رسميًا.",
     startContent: "ابدأ بتجهيز محتواك", startContentSub: "ستتمكن من بناء أفكار وسكربتات ومراجعتها قبل النشر.", security: "الأمان أولًا", securityText: "لا كلمات مرور محفوظة · صلاحيات رسمية · موافقة قبل النشر", daily: "نظرة يومية", contentReady: "ما يحتاج انتباهك", noPending: "لا توجد عناصر للمراجعة بعد", buildNext: "استوديو المحتوى المحلي المجاني جاهز للمسودات؛ لا يوجد نشر أو ربط Instagram بعد.",
@@ -78,7 +79,7 @@ const words: Record<Lang, Copy> = {
     countsBasis: "Ranked by visible likes plus comments only; this is not an engagement rate or total interactions.", sampleLabel: "Among the latest returned items", missingCounts: "Items missing likes or comments counts", noComparable: "No items have both counts for ranking.", performanceUnavailable: "Content performance could not be loaded.", observedChange: "Observed change", firstLastNote: "Difference between the first and last daily point Meta returned; it does not explain why.", noChangeData: "Fewer than two points are available to compare.", likes: "likes", comments: "comments",
     scheduleTitle: "Publishing calendar", scheduleSub: "Review drafts and timing here before publishing.", approvalsTitle: "Your review comes first", approvalsSub: "Content will not publish until publishing permission and your selected approval mode are in place.",
     settingsTitle: "Account settings", settingsSub: "Connection, language, and approval preferences.", connection: "Instagram connection", officialOnly: "Official integration only", accountType: "Account type", creator: "Creator", permissions: "Permissions", insightsTitle: "Official Meta insights", insightsSub: "Values come from Instagram Insights; some metrics may be unavailable or delayed.", metricUnavailable: "Meta did not return this metric", officialSource: "Source: Instagram Graph API", latest: "Latest value in range", noInsights: "No Insights data is available for this period.", notSet: "Not connected",
-    manual: "Manual", approvalMode: "Approval before publishing", automation: "Publishing automation", stop: "Stop automation", stopNote: "Inactive until official connection is configured.",
+    manual: "Manual", approvalMode: "Approval before publishing", automation: "Publishing scheduler", stop: "Pause automation", stopNote: "Control scheduled publishing from the calendar.", schedulerActive: "Scheduler is active", schedulerPaused: "Scheduler is paused", schedulerDisabled: "The scheduler worker is disabled on the server.", pauseScheduler: "Pause scheduled publishing", resumeScheduler: "Resume scheduled publishing", schedulerCaveat: "Pausing prevents new scheduled posts from starting; it does not stop a publish already in progress.", schedulerError: "Could not change scheduler status. Refresh before trying again.",
     mobileNav: "Navigation", coming: "Coming soon", stage: "Stage 2 · Dashboard", zeroData: "No sample data", zeroDataSub: "Metrics stay empty until read from a real source.",
     today: "Last 24 hours", week: "Last 7 days", month: "Last 30 days", updated: "Last updated", none: "—", apiStatus: "Connection status", noConnection: "No Instagram connection", onlyOfficial: "No unofficial login or scraping will be used.",
     startContent: "Start preparing content", startContentSub: "Build ideas and scripts, then review them before publishing.", security: "Security first", securityText: "No saved passwords · Official permissions · Review before publishing", daily: "Daily overview", contentReady: "Needs your attention", noPending: "Nothing to review yet", buildNext: "The free local content studio is ready for drafts; Instagram is not connected and nothing publishes.",
@@ -192,6 +193,8 @@ export default function Home() {
   const [profileAuditError, setProfileAuditError] = useState("");
   const [publishPosts, setPublishPosts] = useState<PublishPost[]>([]);
   const [postsLoading, setPostsLoading] = useState(false);
+  const [schedulerStatus, setSchedulerStatus] = useState<SchedulerStatus | null>(null);
+  const [schedulerBusy, setSchedulerBusy] = useState(false);
   const [postCaption, setPostCaption] = useState("");
   const [postMediaUrl, setPostMediaUrl] = useState("");
   const [postMediaType, setPostMediaType] = useState<PublishPost["media_type"]>("IMAGE");
@@ -238,6 +241,28 @@ export default function Home() {
   }, [lang, rtl]);
 
   const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+
+  async function refreshScheduler() {
+    try {
+      const response = await fetch(`${apiBase}/api/instagram/scheduler`, { credentials: "include", cache: "no-store" });
+      if (response.status === 401) { setOwnerSession((current) => ({ ...current, authenticated: false })); return; }
+      if (!response.ok) throw new Error("scheduler-status-failed");
+      setSchedulerStatus(await response.json() as SchedulerStatus);
+    } catch { setSchedulerStatus(null); }
+  }
+
+  async function setSchedulerPaused(paused: boolean) {
+    setSchedulerBusy(true); setPostError("");
+    try {
+      const response = await fetch(`${apiBase}/api/instagram/scheduler/${paused ? "pause" : "resume"}`, {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: "{}",
+      });
+      if (response.status === 401) { setOwnerSession((current) => ({ ...current, authenticated: false })); throw new Error("not-authenticated"); }
+      if (!response.ok) throw new Error("scheduler-update-failed");
+      setSchedulerStatus(await response.json() as SchedulerStatus);
+    } catch { setPostError(t.schedulerError); void refreshScheduler(); }
+    finally { setSchedulerBusy(false); }
+  }
 
   async function refreshPosts() {
     setPostsLoading(true);
@@ -377,7 +402,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!authLoading && ownerSession.authenticated) { void refreshInstagram(); void refreshPosts(); }
+    if (!authLoading && ownerSession.authenticated) { void refreshInstagram(); void refreshPosts(); void refreshScheduler(); }
   }, [authLoading, ownerSession.authenticated, range]);
 
   async function loginOwner(event: FormEvent<HTMLFormElement>) {
@@ -899,6 +924,12 @@ VO AR: ${scene.voiceover_ar}`).join("\n\n");
 
         {view === "calendar" && <section className="page-content">
           <div className="page-title-row"><div><p className="eyebrow">{t.stage}</p><h1>{t.scheduleTitle}</h1><p>{lang === "ar" ? "كل منشور يحتاج موافقتك الصريحة قبل النشر أو الجدولة." : "Every post needs your explicit approval before publishing or scheduling."}</p></div><span className="status-tag">{instagramStatus?.connected ? t.connected : t.offline}</span></div>
+          <div className="panel scheduler-control" role="region" aria-label={t.automation}>
+            <div className="panel-heading"><div><h2>{t.automation}</h2><p>{schedulerStatus?.configured ? (schedulerStatus.paused ? t.schedulerPaused : t.schedulerActive) : t.schedulerDisabled}</p></div>
+              <button className="secondary-button" type="button" disabled={schedulerBusy || !schedulerStatus?.configured || !ownerSession.authenticated} onClick={() => void setSchedulerPaused(!schedulerStatus?.paused)}>{schedulerBusy ? (lang === "ar" ? "جارٍ التحديث…" : "Updating…") : schedulerStatus?.paused ? t.resumeScheduler : t.pauseScheduler}</button>
+            </div>
+            <p className="result-notice">{t.schedulerCaveat}</p>
+          </div>
           <div className="studio-workspace panel">
             <div className="studio-intro"><span className="studio-art"><Icon name="calendar" size={24}/></span><div><h2>{lang === "ar" ? "جهّز للمراجعة" : "Prepare for review"}</h2><p>{lang === "ar" ? "احفظ المسودة أولًا؛ لن تُنشر أو تُجدول إلا بعد موافقتك الصريحة." : "Save a draft first. Nothing publishes or gets scheduled without your explicit approval."}</p></div></div>
             <form className="content-form" onSubmit={createInstagramDraft}>

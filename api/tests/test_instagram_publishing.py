@@ -167,3 +167,33 @@ def test_due_scheduled_post_is_claimed_and_published_once(monkeypatch, tmp_path)
     assert result["instagram_media_id"] == "888"
     assert publishing._claim(post["id"], due_only=True) is False
     assert len([call for call in FakePublisherClient.calls if call[1].endswith("/media_publish")]) == 1
+
+
+def test_scheduler_pause_resume_is_authenticated_and_blocks_due_claims(monkeypatch, tmp_path):
+    configure_publish(monkeypatch, tmp_path)
+    monkeypatch.setenv("INSTAGRAM_SCHEDULER_ENABLED", "false")
+    post = {"id": "7e4aa784-75e3-48fc-b366-5ef14466f771", "caption": "scheduled", "media_url": "https://cdn.example.com/ready.jpg", "media_type": "IMAGE"}
+    now = publishing._now()
+    with publishing._db() as db:
+        db.execute("INSERT INTO instagram_posts(id,caption,media_url,media_type,state,scheduled_at,approved_hash,approved_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                   (post["id"], post["caption"], post["media_url"], post["media_type"], "scheduled", (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat(), publishing._content_hash(post), now, now, now))
+    with TestClient(app) as client:
+        monkeypatch.setenv("INSTAGRAM_SCHEDULER_ENABLED", "true")
+        assert client.get("/api/instagram/scheduler").status_code == 401
+        owner_login(client)
+        assert client.get("/api/instagram/scheduler").json() == {"configured": True, "paused": False, "active": True}
+        pause = client.post("/api/instagram/scheduler/pause", json={}, headers={"Origin": "http://localhost:3000"})
+        assert pause.status_code == 200 and pause.json() == {"configured": True, "paused": True, "active": False}
+        assert publishing._claim(post["id"], due_only=True) is False
+        resume = client.post("/api/instagram/scheduler/resume", json={}, headers={"Origin": "http://localhost:3000"})
+        assert resume.status_code == 200 and resume.json() == {"configured": True, "paused": False, "active": True}
+        assert publishing._claim(post["id"], due_only=True) is True
+        assert publishing._claim(post["id"], due_only=True) is False
+
+
+def test_scheduler_control_rejects_foreign_origin(monkeypatch, tmp_path):
+    configure_publish(monkeypatch, tmp_path)
+    with TestClient(app) as client:
+        owner_login(client)
+        response = client.post("/api/instagram/scheduler/pause", json={}, headers={"Origin": "https://attacker.example"})
+        assert response.status_code == 403
