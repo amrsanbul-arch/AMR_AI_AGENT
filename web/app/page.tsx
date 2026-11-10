@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 type Lang = "ar" | "en";
 type View = "overview" | "studio" | "calendar" | "insights" | "settings";
@@ -8,6 +8,9 @@ type View = "overview" | "studio" | "calendar" | "insights" | "settings";
 type Copy = {
   [key: string]: string;
 };
+type ContentMode = "ideas" | "caption" | "reel_script";
+type ContentPiece = { title: string; hook: string; body: string; cta: string; hashtags: string[]; scenes: string[] };
+type ContentResult = { mode: ContentMode; language: "ar" | "en"; generator: "free_template"; notice: string; pieces: ContentPiece[] };
 
 const words: Record<Lang, Copy> = {
   ar: {
@@ -17,14 +20,19 @@ const words: Record<Lang, Copy> = {
     connect: "ربط Instagram الرسمي", next: "الربط الرسمي قيد التجهيز", privacy: "لن نطلب كلمة مرورك أو رمز تحقق.",
     followers: "المتابعون", reach: "الوصول", engagement: "التفاعل", views: "المشاهدات", waiting: "بانتظار الموافقة", scheduled: "مجدول للنشر",
     unavailable: "تظهر البيانات بعد الربط الرسمي", overviewTitle: "ملخص الحساب", overviewSub: "بيانات الحساب غير متاحة حتى الآن.",
-    contentTitle: "مساحة المحتوى", contentSub: "الأفكار والمسودات والمحتوى الجاهز للمراجعة.", openStudio: "افتح استوديو المحتوى", emptyDrafts: "مساحة المسودات جاهزة لك", emptyDraftsSub: "أنشئ أول فكرة أو مسودة عندما يبدأ محرر المحتوى بالعمل.",
+    contentTitle: "مساحة المحتوى", contentSub: "الأفكار والمسودات والمحتوى الجاهز للمراجعة.", openStudio: "افتح استوديو المحتوى", emptyDrafts: "مساحة المسودات جاهزة لك", emptyDraftsSub: "أنشئ أفكارًا وكابشنات وسيناريوهات قابلة للتعديل من استوديو المحتوى.",
     performance: "أداء المحتوى", performanceSub: "ستظهر المقارنات والتوصيات بعد وصول بيانات Insights.", topPosts: "أفضل المنشورات", topReels: "أفضل Reels", noData: "لا توجد بيانات لعرضها بعد",
     scheduleTitle: "تقويم النشر", scheduleSub: "هنا ستراجع المسودات والمواعيد قبل النشر.", approvalsTitle: "مراجعتك أولًا", approvalsSub: "المحتوى لن يُنشر قبل تفعيل صلاحية النشر وموافقتك حسب الوضع المختار.",
     settingsTitle: "إعدادات الحساب", settingsSub: "إعداد الاتصال واللغة وطريقة الموافقة.", connection: "اتصال Instagram", officialOnly: "تكامل رسمي فقط", accountType: "نوع الحساب", creator: "Creator · منشئ محتوى", permissions: "الصلاحيات", notSet: "لم يتم الربط بعد",
     manual: "يدوي", approvalMode: "موافقة قبل النشر", automation: "أتمتة النشر", stop: "إيقاف الأتمتة", stopNote: "متوقف حتى يتم إعداد الربط الرسمي.",
     mobileNav: "التنقل", coming: "قيد التجهيز", stage: "المرحلة 2 · لوحة التحكم", zeroData: "لا بيانات تجريبية", zeroDataSub: "كل الأرقام تبقى فارغة حتى نقرأها من مصدر حقيقي.",
     today: "اليوم", week: "هذا الأسبوع", month: "هذا الشهر", updated: "آخر تحديث", none: "—", apiStatus: "حالة الربط", noConnection: "لا يوجد اتصال بإنستجرام", onlyOfficial: "لن نستخدم تسجيل دخول أو كشطًا غير رسميًا.",
-    startContent: "ابدأ بتجهيز محتواك", startContentSub: "ستتمكن من بناء أفكار وسكربتات ومراجعتها قبل النشر.", security: "الأمان أولًا", securityText: "لا كلمات مرور محفوظة · صلاحيات رسمية · موافقة قبل النشر", daily: "نظرة يومية", contentReady: "ما يحتاج انتباهك", noPending: "لا توجد عناصر للمراجعة بعد", buildNext: "الخطوة التالية: إنشاء محرر المحتوى ومساعد الأفكار.",
+    startContent: "ابدأ بتجهيز محتواك", startContentSub: "ستتمكن من بناء أفكار وسكربتات ومراجعتها قبل النشر.", security: "الأمان أولًا", securityText: "لا كلمات مرور محفوظة · صلاحيات رسمية · موافقة قبل النشر", daily: "نظرة يومية", contentReady: "ما يحتاج انتباهك", noPending: "لا توجد عناصر للمراجعة بعد", buildNext: "استوديو المحتوى المحلي المجاني جاهز للمسودات؛ لا يوجد نشر أو ربط Instagram بعد.",
+    studioTitle: "مساعد المحتوى المجاني", studioIntro: "اكتب موضوعك واختر نوع المسودة. النتائج محلية قابلة للتعديل، ولا تُنشر تلقائيًا.",
+    topicLabel: "موضوع المحتوى", topicPlaceholder: "مثال: تصوير الطعام للمطاعم", audienceLabel: "الجمهور (اختياري)", audiencePlaceholder: "مثال: أصحاب المطاعم الصغيرة",
+    modeLabel: "نوع المحتوى", ideasMode: "أفكار", captionMode: "كابشن", reelMode: "سكريبت Reel", toneLabel: "النبرة", friendlyTone: "ودودة", professionalTone: "احترافية", playfulTone: "مرحة", educationalTone: "تعليمية",
+    generate: "جهّز مسودة", generating: "بجهّز…", generated: "المسودات المقترحة", hookLabel: "الافتتاحية", bodyLabel: "النص", ctaLabel: "دعوة للتفاعل", hashtagsLabel: "هاشتاجات مقترحة", scenesLabel: "تقسيم المشاهد", generatorError: "تعذر الاتصال بخادم المساعد. شغّل API محليًا وحاول تاني.", generatorLocal: "محلي مجاني",
+
   },
   en: {
     brand: "AMR AI", product: "Personal Instagram Manager", account: "Creator account", offline: "Not connected",
@@ -33,14 +41,19 @@ const words: Record<Lang, Copy> = {
     connect: "Connect Instagram officially", next: "Official connection is being prepared", privacy: "We will never ask for your password or verification code.",
     followers: "Followers", reach: "Reach", engagement: "Engagement", views: "Views", waiting: "Awaiting approval", scheduled: "Scheduled",
     unavailable: "Available after official connection", overviewTitle: "Account overview", overviewSub: "Account data is not available yet.",
-    contentTitle: "Content workspace", contentSub: "Ideas, drafts, and content ready for review.", openStudio: "Open content studio", emptyDrafts: "Your drafts space is ready", emptyDraftsSub: "Create your first idea or draft when the content editor is available.",
+    contentTitle: "Content workspace", contentSub: "Ideas, drafts, and content ready for review.", openStudio: "Open content studio", emptyDrafts: "Your drafts space is ready", emptyDraftsSub: "Create editable ideas, captions, and scripts in the content studio.",
     performance: "Content performance", performanceSub: "Comparisons and recommendations will appear after Insights data is available.", topPosts: "Top posts", topReels: "Top Reels", noData: "No data to show yet",
     scheduleTitle: "Publishing calendar", scheduleSub: "Review drafts and timing here before publishing.", approvalsTitle: "Your review comes first", approvalsSub: "Content will not publish until publishing permission and your selected approval mode are in place.",
     settingsTitle: "Account settings", settingsSub: "Connection, language, and approval preferences.", connection: "Instagram connection", officialOnly: "Official integration only", accountType: "Account type", creator: "Creator", permissions: "Permissions", notSet: "Not connected",
     manual: "Manual", approvalMode: "Approval before publishing", automation: "Publishing automation", stop: "Stop automation", stopNote: "Inactive until official connection is configured.",
     mobileNav: "Navigation", coming: "Coming soon", stage: "Stage 2 · Dashboard", zeroData: "No sample data", zeroDataSub: "Metrics stay empty until read from a real source.",
     today: "Today", week: "This week", month: "This month", updated: "Last updated", none: "—", apiStatus: "Connection status", noConnection: "No Instagram connection", onlyOfficial: "No unofficial login or scraping will be used.",
-    startContent: "Start preparing content", startContentSub: "Build ideas and scripts, then review them before publishing.", security: "Security first", securityText: "No saved passwords · Official permissions · Review before publishing", daily: "Daily overview", contentReady: "Needs your attention", noPending: "Nothing to review yet", buildNext: "Next: build the content editor and idea assistant.",
+    startContent: "Start preparing content", startContentSub: "Build ideas and scripts, then review them before publishing.", security: "Security first", securityText: "No saved passwords · Official permissions · Review before publishing", daily: "Daily overview", contentReady: "Needs your attention", noPending: "Nothing to review yet", buildNext: "The free local content studio is ready for drafts; Instagram is not connected and nothing publishes.",
+    studioTitle: "Free content assistant", studioIntro: "Add a topic and choose a draft type. Results are local and editable; nothing is published.",
+    topicLabel: "Content topic", topicPlaceholder: "e.g. food photography for restaurants", audienceLabel: "Audience (optional)", audiencePlaceholder: "e.g. small restaurant owners",
+    modeLabel: "Content type", ideasMode: "Ideas", captionMode: "Caption", reelMode: "Reel script", toneLabel: "Tone", friendlyTone: "Friendly", professionalTone: "Professional", playfulTone: "Playful", educationalTone: "Educational",
+    generate: "Generate draft", generating: "Working…", generated: "Suggested drafts", hookLabel: "Hook", bodyLabel: "Copy", ctaLabel: "Call to action", hashtagsLabel: "Suggested hashtags", scenesLabel: "Scene outline", generatorError: "Could not reach the assistant API. Start it locally and try again.", generatorLocal: "FREE · LOCAL",
+
   },
 };
 
@@ -73,6 +86,13 @@ export default function Home() {
   const [lang, setLang] = useState<Lang>("ar");
   const [view, setView] = useState<View>("overview");
   const [range, setRange] = useState<"today" | "week" | "month">("today");
+  const [contentMode, setContentMode] = useState<ContentMode>("ideas");
+  const [topic, setTopic] = useState("");
+  const [audience, setAudience] = useState("");
+  const [tone, setTone] = useState("friendly");
+  const [contentResult, setContentResult] = useState<ContentResult | null>(null);
+  const [contentError, setContentError] = useState("");
+  const [generating, setGenerating] = useState(false);
   const t = words[lang];
   const rtl = lang === "ar";
 
@@ -80,6 +100,27 @@ export default function Home() {
     document.documentElement.lang = lang;
     document.documentElement.dir = rtl ? "rtl" : "ltr";
   }, [lang, rtl]);
+
+  async function generateContent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setGenerating(true);
+    setContentError("");
+    setContentResult(null);
+    try {
+      const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const response = await fetch(`${apiBase}/api/content/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: contentMode, topic, audience, tone, language: lang }),
+      });
+      if (!response.ok) throw new Error("content generation failed");
+      setContentResult(await response.json() as ContentResult);
+    } catch {
+      setContentError(t.generatorError);
+    } finally {
+      setGenerating(false);
+    }
+  }
 
   function changeView(next: View) {
     setView(next);
@@ -96,7 +137,7 @@ export default function Home() {
         <div className="sidebar-label">{t.nav}</div>
         <nav className="side-nav" aria-label={t.nav}>
           {menu.map((item) => <button key={item.id} className={`nav-item ${view === item.id ? "active" : ""}`} onClick={() => changeView(item.id)} aria-current={view === item.id ? "page" : undefined}>
-            <Icon name={item.icon} /><span>{t[item.key]}</span>{item.id === "studio" && <span className="nav-tag">{t.coming}</span>}
+            <Icon name={item.icon} /><span>{t[item.key]}</span>{item.id === "studio" && <span className="nav-tag">{lang === "ar" ? "مجاني" : "Free"}</span>}
           </button>)}
         </nav>
         <div className="sidebar-bottom">
@@ -161,8 +202,21 @@ export default function Home() {
         </>}
 
         {view === "studio" && <section className="page-content">
-          <div className="page-title-row"><div><p className="eyebrow">{t.stage}</p><h1>{t.contentTitle}</h1><p>{t.contentSub}</p></div><span className="status-tag">{t.coming}</span></div>
-          <div className="studio-empty panel"><span className="studio-art"><Icon name="spark" size={28}/></span><h2>{t.emptyDrafts}</h2><p>{t.emptyDraftsSub}</p><div className="empty-note"><Icon name="lock" size={16}/>{t.zeroDataSub}</div></div>
+          <div className="page-title-row"><div><p className="eyebrow">{t.stage}</p><h1>{t.contentTitle}</h1><p>{t.contentSub}</p></div><span className="status-tag">{t.studioTitle}</span></div>
+          <div className="studio-workspace panel">
+            <div className="studio-intro"><span className="studio-art"><Icon name="spark" size={25}/></span><div><h2>{t.studioTitle}</h2><p>{t.studioIntro}</p></div></div>
+            <form className="content-form" onSubmit={generateContent}>
+              <div className="form-field"><label htmlFor="topic">{t.topicLabel}</label><input id="topic" required minLength={2} maxLength={180} value={topic} onChange={(e) => setTopic(e.target.value)} placeholder={t.topicPlaceholder}/></div>
+              <div className="form-field"><label htmlFor="audience">{t.audienceLabel}</label><input id="audience" maxLength={180} value={audience} onChange={(e) => setAudience(e.target.value)} placeholder={t.audiencePlaceholder}/></div>
+              <div className="form-row">
+                <div className="form-field"><label htmlFor="mode">{t.modeLabel}</label><select id="mode" value={contentMode} onChange={(e) => setContentMode(e.target.value as ContentMode)}><option value="ideas">{t.ideasMode}</option><option value="caption">{t.captionMode}</option><option value="reel_script">{t.reelMode}</option></select></div>
+                <div className="form-field"><label htmlFor="tone">{t.toneLabel}</label><select id="tone" value={tone} onChange={(e) => setTone(e.target.value)}><option value="friendly">{t.friendlyTone}</option><option value="professional">{t.professionalTone}</option><option value="playful">{t.playfulTone}</option><option value="educational">{t.educationalTone}</option></select></div>
+              </div>
+              <button className="primary-button studio-submit" type="submit" disabled={generating}><span>{generating ? t.generating : t.generate}</span><Icon name="spark" size={17}/></button>
+              {contentError && <p className="form-error" role="alert">{contentError}</p>}
+            </form>
+          </div>
+          {contentResult && <section className="generated-results" aria-live="polite"><div className="results-heading"><h2>{t.generated}</h2><span className="status-tag">{contentResult.generator === "free_template" ? t.generatorLocal : ""}</span></div><p className="result-notice">{contentResult.notice}</p><div className="result-grid">{contentResult.pieces.map((piece, index) => <article className="result-card panel" key={`${piece.title}-${index}`}><p className="eyebrow">{contentResult.mode === "ideas" ? `${t.ideasMode} ${index + 1}` : t.generated}</p><h3>{piece.title}</h3><div className="result-block"><strong>{t.hookLabel}</strong><p>{piece.hook}</p></div><div className="result-block"><strong>{t.bodyLabel}</strong><p className="result-body">{piece.body}</p></div>{piece.scenes.length > 0 && <div className="result-block"><strong>{t.scenesLabel}</strong><ol>{piece.scenes.map((scene) => <li key={scene}>{scene}</li>)}</ol></div>}<div className="result-block"><strong>{t.ctaLabel}</strong><p>{piece.cta}</p></div><div className="result-block"><strong>{t.hashtagsLabel}</strong><p className="hashtags">{piece.hashtags.join(" ")}</p></div></article>)}</div></section>}
           <div className="info-strip"><strong>{t.approvalsTitle}</strong><span>{t.approvalsSub}</span></div>
         </section>}
 
