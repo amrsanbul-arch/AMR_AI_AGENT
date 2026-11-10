@@ -40,6 +40,8 @@ const words: Record<Lang, Copy> = {
     topicLabel: "موضوع المحتوى", topicPlaceholder: "مثال: تصوير الطعام للمطاعم", audienceLabel: "الجمهور (اختياري)", audiencePlaceholder: "مثال: أصحاب المطاعم الصغيرة",
     modeLabel: "نوع المحتوى", ideasMode: "أفكار", captionMode: "كابشن", reelMode: "سكريبت Reel", toneLabel: "النبرة", friendlyTone: "ودودة", professionalTone: "احترافية", playfulTone: "مرحة", educationalTone: "تعليمية",
     generate: "جهّز مسودة", generating: "بجهّز…", generated: "المسودات المقترحة", hookLabel: "الافتتاحية", bodyLabel: "النص", ctaLabel: "دعوة للتفاعل", hashtagsLabel: "هاشتاجات مقترحة", scenesLabel: "تقسيم المشاهد", generatorError: "تعذر الاتصال بخادم المساعد. شغّل API محليًا وحاول تاني.", generatorLocal: "محلي مجاني",
+    loading: "جارٍ التحميل…", authTitle: "دخول المالك", authIntro: "سجّل الدخول لإدارة لوحة حسابك فقط.", authSetup: "أضف كلمة مرور مالك آمنة في إعدادات الخادم.", password: "كلمة مرور المالك", login: "دخول", loginError: "تعذر تسجيل الدخول. تحقق من كلمة المرور وإعداد الخادم.", logout: "تسجيل الخروج",
+    connected: "متصل رسميًا", notConfigured: "إعداد الربط غير مكتمل", setupPending: "أكمل إعداد تطبيق Meta ومفاتيح OAuth على الخادم أولًا.", connectOfficial: "ربط حساب Instagram رسميًا", oauthNotice: "عاد تسجيل الدخول من Instagram؛ حدّث الحالة لعرض الحساب.", apiLoadError: "تعذر تحميل بيانات Instagram. حدّث الصفحة وحاول مجددًا.", accountData: "بيانات الحساب", accountName: "اسم الحساب", mediaCount: "عدد المنشورات", recentMedia: "أحدث المنشورات", noMedia: "لم تُرجع Meta منشورات لهذا الحساب.", permissionNote: "نستخدم فقط الصلاحيات التي وافقت عليها عبر Meta.", refresh: "تحديث البيانات",
 
   },
   en: {
@@ -61,6 +63,8 @@ const words: Record<Lang, Copy> = {
     topicLabel: "Content topic", topicPlaceholder: "e.g. food photography for restaurants", audienceLabel: "Audience (optional)", audiencePlaceholder: "e.g. small restaurant owners",
     modeLabel: "Content type", ideasMode: "Ideas", captionMode: "Caption", reelMode: "Reel script", toneLabel: "Tone", friendlyTone: "Friendly", professionalTone: "Professional", playfulTone: "Playful", educationalTone: "Educational",
     generate: "Generate draft", generating: "Working…", generated: "Suggested drafts", hookLabel: "Hook", bodyLabel: "Copy", ctaLabel: "Call to action", hashtagsLabel: "Suggested hashtags", scenesLabel: "Scene outline", generatorError: "Could not reach the assistant API. Start it locally and try again.", generatorLocal: "FREE · LOCAL",
+    loading: "Loading…", authTitle: "Owner sign-in", authIntro: "Sign in to manage your account dashboard.", authSetup: "Set a secure owner password in the server configuration.", password: "Owner password", login: "Sign in", loginError: "Could not sign in. Check the password and server setup.", logout: "Sign out",
+    connected: "Officially connected", notConfigured: "Connection setup incomplete", setupPending: "Finish Meta app and OAuth configuration on the server first.", connectOfficial: "Connect Instagram officially", oauthNotice: "Returned from Instagram sign-in; refresh to load the account.", apiLoadError: "Could not load Instagram data. Refresh and try again.", accountData: "Account data", accountName: "Account name", mediaCount: "Post count", recentMedia: "Recent posts", noMedia: "Meta returned no posts for this account.", permissionNote: "Only permissions approved through Meta are used.", refresh: "Refresh data",
 
   },
 };
@@ -113,6 +117,7 @@ export default function Home() {
   const [instagramBusy, setInstagramBusy] = useState(false);
   const [instagramError, setInstagramError] = useState("");
   const [publishPosts, setPublishPosts] = useState<PublishPost[]>([]);
+  const [postsLoading, setPostsLoading] = useState(false);
   const [postCaption, setPostCaption] = useState("");
   const [postMediaUrl, setPostMediaUrl] = useState("");
   const [postMediaType, setPostMediaType] = useState<PublishPost["media_type"]>("IMAGE");
@@ -130,6 +135,7 @@ export default function Home() {
   const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
   async function refreshPosts() {
+    setPostsLoading(true);
     try {
       const response = await fetch(`${apiBase}/api/instagram/posts`, { credentials: "include", cache: "no-store" });
       if (response.status === 401) { setOwnerSession((current) => ({ ...current, authenticated: false })); return; }
@@ -137,36 +143,72 @@ export default function Home() {
       const payload = await response.json() as { data?: PublishPost[] };
       setPublishPosts(Array.isArray(payload.data) ? payload.data : []);
     } catch { setPostError(lang === "ar" ? "تعذر تحميل جدول المحتوى." : "Could not load the publishing queue."); }
+    finally { setPostsLoading(false); }
   }
 
   async function createInstagramDraft(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setPostBusy(true); setPostError("");
+    event.preventDefault(); setPostError("");
+    let mediaUrl: URL;
+    try { mediaUrl = new URL(postMediaUrl); }
+    catch { setPostError(lang === "ar" ? "أدخل رابط وسائط صحيحًا يبدأ بـ HTTPS." : "Enter a valid HTTPS media URL."); return; }
+    if (mediaUrl.protocol !== "https:") { setPostError(lang === "ar" ? "يجب أن يبدأ رابط الوسائط بـ HTTPS." : "The media URL must use HTTPS."); return; }
+    setPostBusy(true);
     try {
-      const response = await fetch(`${apiBase}/api/instagram/posts`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ caption: postCaption, media_url: postMediaUrl, media_type: postMediaType }) });
+      const response = await fetch(`${apiBase}/api/instagram/posts`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ caption: postCaption, media_url: mediaUrl.toString(), media_type: postMediaType }) });
       if (!response.ok) throw new Error("draft-failed");
       const item = await response.json() as PublishPost; setPublishPosts((items) => [item, ...items]); setPostCaption(""); setPostMediaUrl("");
-    } catch { setPostError(lang === "ar" ? "تعذر حفظ المسودة. استخدم رابط HTTPS عامًا للصورة أو الفيديو." : "Could not save draft. Use a public HTTPS image or video URL."); }
+    } catch {
+      setPostError(lang === "ar" ? "تعذر تأكيد حفظ المسودة؛ حدّث قائمة المحتوى قبل محاولة حفظها مرة أخرى." : "Draft saving was not confirmed. Refresh the queue before trying again.");
+      void refreshPosts();
+    }
     finally { setPostBusy(false); }
   }
 
   async function approveInstagramPost(id: string, mode: "publish_now" | "schedule", localTime?: string) {
+    const item = publishPosts.find((post) => post.id === id);
+    if (!item) return;
+    let scheduled_at: string | undefined;
+    if (mode === "schedule") {
+      if (!localTime) { setPostError(lang === "ar" ? "اختر موعدًا قبل الجدولة." : "Choose a time before scheduling."); return; }
+      const parsedTime = new Date(localTime);
+      if (Number.isNaN(parsedTime.getTime()) || parsedTime.getTime() <= Date.now()) {
+        setPostError(lang === "ar" ? "اختر موعدًا مستقبليًا." : "Choose a future time."); return;
+      }
+      scheduled_at = parsedTime.toISOString();
+    }
+    const action = mode === "publish_now"
+      ? (lang === "ar" ? "نشر هذا المحتوى الآن" : "publish this content now")
+      : (lang === "ar" ? `جدولة هذا المحتوى في ${new Date(scheduled_at!).toLocaleString("ar-EG")}` : `schedule this content for ${new Date(scheduled_at!).toLocaleString()}`);
+    if (!window.confirm(lang === "ar" ? `هل تؤكد موافقتك على ${action}؟` : `Confirm your approval to ${action}?`)) return;
+
     setPostBusy(true); setPostError("");
     try {
-      const scheduled_at = mode === "schedule" && localTime ? new Date(localTime).toISOString() : undefined;
       const response = await fetch(`${apiBase}/api/instagram/posts/${id}/approve`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approved: true, mode, ...(scheduled_at ? { scheduled_at } : {}) }) });
       const result = await response.json() as PublishPost;
       if (!response.ok) throw new Error("approval-failed");
-      setPublishPosts((items) => items.map((item) => item.id === id ? result : item));
-      if (result.state === "unknown") setPostError(lang === "ar" ? "نتيجة النشر غير محسومة؛ لن نعيد المحاولة تلقائيًا لتجنب التكرار." : "The publish result is unclear; it will not be retried automatically to avoid duplicates.");
+      setPublishPosts((items) => items.map((post) => post.id === id ? result : post));
+      if (result.state === "unknown") setPostError(lang === "ar" ? "نتيجة النشر غير محسومة؛ لن نعيد المحاولة تلقائيًا لتجنب التكرار. حدّث الحالة قبل أي قرار آخر." : "The publish result is unclear; it will not be retried automatically to avoid duplicates. Refresh status before deciding what to do.");
       else if (result.state === "failed") setPostError(lang === "ar" ? "لم يتم النشر. راجع الاتصال والصلاحيات قبل أي محاولة جديدة." : "It was not published. Check the connection and permissions before trying again.");
-    } catch { setPostError(lang === "ar" ? "تعذر تنفيذ الموافقة. حدّث الحالة قبل إعادة المحاولة." : "Approval could not be completed. Refresh the status before retrying."); }
+    } catch {
+      setPostError(lang === "ar" ? "لم يصل تأكيد الإجراء؛ حدّث جدول المحتوى لمعرفة الحالة قبل أي محاولة جديدة." : "There was no confirmation. Refresh the queue to check the status before trying again.");
+      void refreshPosts();
+    }
     finally { setPostBusy(false); }
   }
 
   async function cancelInstagramSchedule(id: string) {
+    const message = lang === "ar" ? "هل تريد إلغاء موعد هذا المنشور؟" : "Cancel this post's scheduled time?";
+    if (!window.confirm(message)) return;
     setPostBusy(true); setPostError("");
-    try { const response = await fetch(`${apiBase}/api/instagram/posts/${id}/cancel`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: "{}" }); const result = await response.json() as PublishPost; if (!response.ok) throw new Error("cancel-failed"); setPublishPosts((items) => items.map((item) => item.id === id ? result : item)); }
-    catch { setPostError(lang === "ar" ? "تعذر إلغاء الموعد؛ حدّث الحالة." : "Could not cancel the schedule; refresh its status."); }
+    try {
+      const response = await fetch(`${apiBase}/api/instagram/posts/${id}/cancel`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const result = await response.json() as PublishPost;
+      if (!response.ok) throw new Error("cancel-failed");
+      setPublishPosts((items) => items.map((item) => item.id === id ? result : item));
+    } catch {
+      setPostError(lang === "ar" ? "لم يصل تأكيد الإلغاء؛ حدّث الجدول لمعرفة الحالة." : "There was no cancellation confirmation. Refresh the queue to check its status.");
+      void refreshPosts();
+    }
     finally { setPostBusy(false); }
   }
 
@@ -397,22 +439,35 @@ export default function Home() {
         {view === "calendar" && <section className="page-content">
           <div className="page-title-row"><div><p className="eyebrow">{t.stage}</p><h1>{t.scheduleTitle}</h1><p>{lang === "ar" ? "كل منشور يحتاج موافقتك الصريحة قبل النشر أو الجدولة." : "Every post needs your explicit approval before publishing or scheduling."}</p></div><span className="status-tag">{instagramStatus?.connected ? t.connected : t.offline}</span></div>
           <div className="studio-workspace panel">
+            <div className="studio-intro"><span className="studio-art"><Icon name="calendar" size={24}/></span><div><h2>{lang === "ar" ? "جهّز للمراجعة" : "Prepare for review"}</h2><p>{lang === "ar" ? "احفظ المسودة أولًا؛ لن تُنشر أو تُجدول إلا بعد موافقتك الصريحة." : "Save a draft first. Nothing publishes or gets scheduled without your explicit approval."}</p></div></div>
             <form className="content-form" onSubmit={createInstagramDraft}>
               <div className="form-field"><label htmlFor="publish-caption">{lang === "ar" ? "الكابشن (حتى 2200 حرف)" : "Caption (up to 2,200 characters)"}</label><textarea id="publish-caption" maxLength={2200} rows={4} value={postCaption} onChange={(event) => setPostCaption(event.target.value)} /></div>
               <div className="form-field"><label htmlFor="publish-url">{lang === "ar" ? "رابط الصورة أو الفيديو العام (HTTPS)" : "Public image or video URL (HTTPS)"}</label><input id="publish-url" type="url" required value={postMediaUrl} onChange={(event) => setPostMediaUrl(event.target.value)} placeholder="https://" /></div>
-              <div className="form-field"><label htmlFor="publish-type">{lang === "ar" ? "النوع" : "Media type"}</label><select id="publish-type" value={postMediaType} onChange={(event) => setPostMediaType(event.target.value as PublishPost["media_type"])}><option value="IMAGE">Image</option><option value="REELS">Reel</option><option value="VIDEO">Video</option></select></div>
-              <button className="primary-button" type="submit" disabled={postBusy || !ownerSession.authenticated}><span>{lang === "ar" ? "حفظ كمسودة للمراجعة" : "Save draft for review"}</span></button>
+              <div className="form-field"><label htmlFor="publish-type">{lang === "ar" ? "النوع" : "Media type"}</label><select id="publish-type" value={postMediaType} onChange={(event) => setPostMediaType(event.target.value as PublishPost["media_type"])}><option value="IMAGE">{lang === "ar" ? "صورة" : "Image"}</option><option value="REELS">Reel</option><option value="VIDEO">{lang === "ar" ? "فيديو" : "Video"}</option></select></div>
+              <button className="primary-button" type="submit" disabled={postBusy || !ownerSession.authenticated}><span>{postBusy ? (lang === "ar" ? "جارٍ الحفظ…" : "Saving…") : (lang === "ar" ? "حفظ كمسودة للمراجعة" : "Save draft for review")}</span></button>
             </form>
           </div>
           {postError && <p className="form-error" role="alert">{postError}</p>}
-          <div className="lower-grid">{publishPosts.map((item) => <article className="panel rank-panel" key={item.id}>
-            <span className="status-tag">{item.state}</span><p>{item.media_type} · <a href={item.media_url} target="_blank" rel="noreferrer">{lang === "ar" ? "عرض الوسائط" : "View media"}</a></p><p className="result-body">{item.caption || (lang === "ar" ? "بدون كابشن" : "No caption")}</p>
-            {item.scheduled_at && <p>{new Date(item.scheduled_at).toLocaleString(lang === "ar" ? "ar-EG" : "en-US")}</p>}
-            {item.state === "draft" && <><div className="form-field"><label htmlFor={`time-${item.id}`}>{lang === "ar" ? "موعد النشر (اختياري للجدولة)" : "Publish time (for scheduling)"}</label><input id={`time-${item.id}`} type="datetime-local" /></div><div className="form-row"><button className="primary-button" type="button" disabled={postBusy || !instagramStatus?.connected} onClick={() => void approveInstagramPost(item.id, "publish_now")}>{lang === "ar" ? "أوافق وانشر الآن" : "Approve and publish now"}</button><button className="secondary-button" type="button" disabled={postBusy || !instagramStatus?.connected} onClick={() => { const input = document.getElementById(`time-${item.id}`) as HTMLInputElement | null; if (input?.value) void approveInstagramPost(item.id, "schedule", input.value); else setPostError(lang === "ar" ? "اختر موعدًا مستقبليًا أولًا." : "Choose a future time first."); }}>{lang === "ar" ? "أوافق وجدول النشر" : "Approve and schedule"}</button></div></>}
-            {item.state === "scheduled" && <button className="secondary-button" type="button" disabled={postBusy} onClick={() => void cancelInstagramSchedule(item.id)}>{lang === "ar" ? "إلغاء الموعد" : "Cancel schedule"}</button>}
-            {item.state === "published" && <p>{lang === "ar" ? "تم النشر عبر Instagram API الرسمي." : "Published through the official Instagram API."}</p>}
-          </article>)}</div>
-          {!publishPosts.length && <div className="empty-note">{lang === "ar" ? "لا توجد مسودات بعد." : "No drafts yet."}</div>}
+          <section className="queue-section">
+            <div className="panel-heading queue-heading"><div><h2>{lang === "ar" ? "قائمة المحتوى" : "Content queue"}</h2><p>{lang === "ar" ? "راجع كل منشور قبل الموافقة أو الجدولة." : "Review each post before approving or scheduling it."}</p></div><button className="secondary-button" type="button" disabled={postsLoading || postBusy} onClick={() => void refreshPosts()}>{postsLoading ? (lang === "ar" ? "جارٍ التحديث…" : "Refreshing…") : (lang === "ar" ? "تحديث القائمة" : "Refresh queue")}</button></div>
+            {postsLoading && publishPosts.length === 0 ? <div className="empty-note">{lang === "ar" ? "جارٍ تحميل المنشورات…" : "Loading posts…"}</div> : publishPosts.length === 0 ? <div className="empty-note">{lang === "ar" ? "لا توجد مسودات بعد. أضف منشورًا للمراجعة." : "No drafts yet. Add a post for review."}</div> : <div className="queue-grid">{publishPosts.map((item) => {
+              const stateLabels: Record<string, string> = lang === "ar"
+                ? { draft: "مسودة · تنتظر مراجعتك", scheduled: "مجدول", approved: "تمت الموافقة", publishing: "جارٍ النشر", published: "تم النشر", cancelled: "ملغي", failed: "فشل النشر", unknown: "النتيجة غير محسومة" }
+                : { draft: "Draft · awaiting your review", scheduled: "Scheduled", approved: "Approved", publishing: "Publishing", published: "Published", cancelled: "Cancelled", failed: "Failed", unknown: "Result unclear" };
+              const typeLabel = item.media_type === "IMAGE" ? (lang === "ar" ? "صورة" : "Image") : item.media_type === "REELS" ? "Reel" : (lang === "ar" ? "فيديو" : "Video");
+              return <article className="panel publish-card" key={item.id}>
+                <div className="publish-card-head"><span className={`status-tag state-${item.state}`}>{stateLabels[item.state] || item.state}</span><span className="media-type-tag">{typeLabel}</span></div>
+                <div className="publish-preview" aria-label={lang === "ar" ? "معاينة الوسائط" : "Media preview"}>{item.media_type === "IMAGE" ? <img src={item.media_url} alt={lang === "ar" ? "معاينة المنشور" : "Post preview"} loading="lazy" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : <video src={item.media_url} controls preload="metadata" aria-label={lang === "ar" ? "معاينة الفيديو" : "Video preview"} />}</div>
+                <a className="asset-link" href={item.media_url} target="_blank" rel="noreferrer">{lang === "ar" ? "فتح الوسائط" : "Open media"} ↗</a>
+                <p className="result-body review-caption">{item.caption || (lang === "ar" ? "بدون كابشن" : "No caption")}</p>
+                {item.scheduled_at && <p className="scheduled-time"><Icon name="calendar" size={15}/>{new Date(item.scheduled_at).toLocaleString(lang === "ar" ? "ar-EG" : "en-US", { dateStyle: "medium", timeStyle: "short" })}</p>}
+                {item.state === "draft" && <><div className="form-field"><label htmlFor={`time-${item.id}`}>{lang === "ar" ? "موعد النشر (توقيت جهازك)" : "Publish time (your device's local time)"}</label><input id={`time-${item.id}`} type="datetime-local" min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0,16)} /></div><div className="approval-buttons"><button className="primary-button" type="button" disabled={postBusy || !instagramStatus?.connected} onClick={() => void approveInstagramPost(item.id, "publish_now")}>{lang === "ar" ? "موافقة ونشر الآن" : "Approve & publish now"}</button><button className="secondary-button" type="button" disabled={postBusy || !instagramStatus?.connected} onClick={() => { const input = document.getElementById(`time-${item.id}`) as HTMLInputElement | null; if (input?.value) void approveInstagramPost(item.id, "schedule", input.value); else setPostError(lang === "ar" ? "اختر موعدًا مستقبليًا أولًا." : "Choose a future time first."); }}>{lang === "ar" ? "موافقة وجدولة" : "Approve & schedule"}</button></div></>}
+                {item.state === "scheduled" && <button className="secondary-button" type="button" disabled={postBusy} onClick={() => void cancelInstagramSchedule(item.id)}>{lang === "ar" ? "إلغاء الموعد" : "Cancel schedule"}</button>}
+                {item.state === "published" && <p className="result-notice">{lang === "ar" ? "تم النشر عبر Instagram API الرسمي." : "Published through the official Instagram API."}</p>}
+                {item.state === "unknown" && <p className="queue-warning">{lang === "ar" ? "لا تعِد النشر قبل تحديث الحالة والتحقق منها لتجنب تكرار المنشور." : "Do not republish until you refresh and verify status, to avoid a duplicate."}</p>}
+              </article>;
+            })}</div>}
+          </section>
           <div className="info-strip"><strong>{t.approvalsTitle}</strong><span>{lang === "ar" ? "الجدولة تُدار داخل التطبيق؛ يلزم أن يبقى الخادم المجاني يعمل في موعد النشر." : "Scheduling is app-managed; the free server must be running when a post is due."}</span></div>
         </section>}
 
